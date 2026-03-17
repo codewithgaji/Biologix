@@ -1,0 +1,44 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import NotFound from "./pages/NotFound";
+import AuthGuard from "./components/AuthGuard";
+import DashboardLayout from "./components/DashboardLayout";
+import Overview from "./pages/dashboard/Overview";
+import Employees from "./pages/dashboard/Employees";
+import Departments from "./pages/dashboard/Departments";
+import Attendance from "./pages/dashboard/Attendance";
+import ImportData from "./pages/dashboard/ImportData";
+import Export from "./pages/dashboard/Export";
+import Holidays from "./pages/dashboard/Holidays";  // ← add this
+
+const queryClient = new QueryClient();
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Sonner />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
+            <Route index element={<Overview />} />
+            <Route path="employees" element={<Employees />} />
+            <Route path="departments" element={<Departments />} />
+            <Route path="attendance" element={<Attendance />} />
+            <Route path="import" element={<ImportData />} />
+            <Route path="export" element={<Export />} />
+            <Route path="holidays" element={<Holidays />} />  {/* ← add this */}
+          </Route>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
+
+export default App;

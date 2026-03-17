@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 92%;
+
+    --card: 222 40% 10%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 222 40% 10%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 172 66% 50%;
+    --primary-foreground: 222 47% 6%;
+
+    --secondary: 222 30% 16%;
+    --secondary-foreground: 210 40% 85%;
+
+    --muted: 222 30% 14%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 172 66% 50%;
+    --accent-foreground: 222 47% 6%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 222 30% 18%;
+    --input: 222 30% 18%;
+    --ring: 172 66% 50%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 222 47% 8%;
+    --sidebar-foreground: 210 40% 85%;
+    --sidebar-primary: 172 66% 50%;
+    --sidebar-primary-foreground: 222 47% 6%;
+    --sidebar-accent: 222 30% 14%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 222 30% 16%;
+    --sidebar-ring: 172 66% 50%;
+
+    --success: 152 69% 40%;
+    --success-foreground: 210 40% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 6%;
+
+    --glow-primary: 0 0 20px hsl(172 66% 50% / 0.3);
+    --glow-primary-lg: 0 0 40px hsl(172 66% 50% / 0.2), 0 0 80px hsl(172 66% 50% / 0.1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .glow-teal {
+    box-shadow: var(--glow-primary);
+  }
+  .glow-teal-lg {
+    box-shadow: var(--glow-primary-lg);
+  }
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+  }
+  .status-present {
+    @apply bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))];
+  }
+  .status-absent {
+    @apply bg-destructive text-destructive-foreground;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
