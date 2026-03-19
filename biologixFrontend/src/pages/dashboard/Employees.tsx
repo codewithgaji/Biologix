@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo} from "react";
 import { getEmployees, getDepartments, updateEmployee, bulkUpdateDepartment, getMonthlyHours } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,7 @@ export default function Employees() {
   const [departments, setDepartments]   = useState<any[]>([]);
   const [monthlyMap, setMonthlyMap]     = useState<Record<number, any>>({});
   const [search, setSearch]             = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selected, setSelected]         = useState<Set<number>>(new Set());
   const [bulkDept, setBulkDept]         = useState("");
   const [bulkShift, setBulkShift]       = useState("");
@@ -93,10 +94,17 @@ export default function Employees() {
   const [loading, setLoading]           = useState(true);
   const [hoursLoading, setHoursLoading] = useState(false);
 
+  // Debounce — only updates after user stops typing for 200ms
+  useEffect(() => {
+  const timer = setTimeout(() => setDebouncedSearch(search), 200);
+  return () => clearTimeout(timer);
+  }, [search]);
+
   const loadEmployees = () => {
     Promise.all([getEmployees(), getDepartments()])
       .then(([emps, depts]) => {
-        setEmployees(emps || []);
+        setEmployees((emps || []).sort((a, b) => String(a.badge_number).localeCompare(String(b.badge_number), undefined, { numeric: true })
+      ));
         setDepartments(depts || []);
       })
       .catch(() => toast.error("Failed to load employees"))
@@ -118,14 +126,16 @@ export default function Employees() {
   useEffect(() => { loadEmployees(); }, []);
   useEffect(() => { loadHours(month, year); }, [month, year]);
 
-  const filtered = employees.filter((e) => {
-    const q = search.toLowerCase();
-    return (
-      (e.name         || "").toLowerCase().includes(q) ||
-      (e.badge_number || "").toString().includes(q)
-    );
-  });
-
+  // Memoized filter — only recalculates when employees or debouncedSearch changes
+  const filtered = useMemo(() =>
+  employees.filter(emp => {
+    const q = debouncedSearch.toLowerCase();
+    return !q ||
+      (emp.name || "").toLowerCase().includes(q) ||
+      String(emp.badge_number).includes(q);
+  }),
+  [employees, debouncedSearch]
+  );
   const toggleSelect = (id: number) => {
     const next = new Set(selected);
     next.has(id) ? next.delete(id) : next.add(id);

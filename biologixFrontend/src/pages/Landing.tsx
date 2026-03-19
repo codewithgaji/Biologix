@@ -1,88 +1,737 @@
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Fingerprint, Clock, FileSpreadsheet } from "lucide-react";
+import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
+import { Fingerprint, Clock, FileSpreadsheet, Mail, Phone, MapPin, ArrowRight, Zap, Shield, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import FingerprintAnimation from "@/components/FingerprintAnimation";
 
+// ─── shard clip paths ────────────────────────────────────────────────────────
+const SHARD_CLIP = `polygon(
+  8% 0%,
+  94% 2%,
+  100% 12%,
+  98% 88%,
+  92% 100%,
+  6% 98%,
+  0% 86%,
+  2% 14%
+)`;
+
+const SHARD_CLIP_2 = `polygon(
+  4% 6%,
+  88% 0%,
+  100% 10%,
+  96% 92%,
+  88% 100%,
+  10% 96%,
+  0% 82%,
+  2% 8%
+)`;
+
+const SHARD_GLOW_CLIP = `polygon(
+  6% 2%,
+  96% 0%,
+  100% 8%,
+  99% 90%,
+  94% 100%,
+  4% 99%,
+  0% 88%,
+  1% 10%
+)`;
+
+// ─── animated fingerprint bg ──────────────────────────────────────────────────
+function FingerprintBg() {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-[0.04]">
+      {[...Array(6)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute"
+          style={{
+            left: `${10 + i * 16}%`,
+            top: `${20 + (i % 3) * 25}%`,
+          }}
+          animate={{ rotate: [0, 360], scale: [0.8, 1.1, 0.8] }}
+          transition={{ duration: 20 + i * 4, repeat: Infinity, ease: "linear" }}
+        >
+          <Fingerprint size={120 + i * 20} className="text-cyan-400" />
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+// ─── glowing orbs ─────────────────────────────────────────────────────────────
+function GlowOrbs() {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <motion.div
+        className="absolute w-96 h-96 rounded-full"
+        style={{
+          background: "radial-gradient(circle, rgba(6,182,212,0.15) 0%, transparent 70%)",
+          top: "-10%", left: "-5%",
+        }}
+        animate={{ x: [0, 40, 0], y: [0, 30, 0] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="absolute w-80 h-80 rounded-full"
+        style={{
+          background: "radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)",
+          bottom: "10%", right: "5%",
+        }}
+        animate={{ x: [0, -30, 0], y: [0, -40, 0] }}
+        transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
+      />
+    </div>
+  );
+}
+
+// ─── shard photo frame 
+function ShardFrame({
+  imageSrc,
+  name,
+  role,
+  bio,
+  index,
+}: {
+  imageSrc?: string;
+  name: string;
+  role: string;
+  bio: string;
+  index: number;
+}) {
+  const isEven = index % 2 === 0;
+
+  return (
+    <motion.div
+      className={`flex flex-col ${isEven ? "md:flex-row" : "md:flex-row-reverse"} items-center gap-10 md:gap-16`}
+      initial={{ opacity: 0, x: isEven ? -60 : 60 }}
+      whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
+    >
+      {/* Shard frame */}
+      <div className="relative flex-shrink-0 w-64 h-72 md:w-72 md:h-80">
+        {/* Outer glow layer */}
+        <motion.div
+          className="absolute inset-[-6px]"
+          style={{
+            clipPath: SHARD_GLOW_CLIP,
+            background: "linear-gradient(135deg, rgba(6,182,212,0.4), rgba(59,130,246,0.2), rgba(6,182,212,0.1))",
+          }}
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        />
+
+        {/* Border layer */}
+        <div
+          className="absolute inset-[-2px]"
+          style={{
+            clipPath: SHARD_CLIP,
+            background: "linear-gradient(135deg, #06b6d4, #3b82f6, #06b6d4)",
+          }}
+        />
+
+        {/* Glare shards overlay */}
+        <div
+          className="absolute inset-0 z-10 pointer-events-none"
+          style={{ clipPath: SHARD_CLIP }}
+        >
+          <div
+            className="absolute top-0 left-0 w-1/3 h-full opacity-20"
+            style={{
+              background: "linear-gradient(120deg, rgba(255,255,255,0.6) 0%, transparent 100%)",
+            }}
+          />
+          <div
+            className="absolute top-0 right-8 w-[2px] h-2/3 opacity-30"
+            style={{ background: "linear-gradient(180deg, transparent, rgba(255,255,255,0.8), transparent)" }}
+          />
+        </div>
+
+        {/* Image or placeholder */}
+        <div
+          className="absolute inset-[1px] overflow-hidden"
+          style={{ clipPath: SHARD_CLIP_2 }}
+        >
+          {imageSrc ? (
+            <img
+              src={imageSrc}
+              alt={name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className="w-full h-full flex flex-col items-center justify-center gap-3"
+              style={{
+                background: "linear-gradient(160deg, #0f1f35 0%, #0a1628 50%, #0d1f3a 100%)",
+              }}
+            >
+              <motion.div
+                animate={{ scale: [1, 1.05, 1], opacity: [0.4, 0.7, 0.4] }}
+                transition={{ duration: 2.5, repeat: Infinity }}
+              >
+                <Fingerprint className="text-cyan-400/50" size={56} />
+              </motion.div>
+              <p className="text-cyan-400/40 text-xs font-mono tracking-widest uppercase">Photo</p>
+            </div>
+          )}
+        </div>
+
+        {/* Corner accent shards */}
+        <div className="absolute -bottom-2 -right-2 w-8 h-8 opacity-60"
+          style={{
+            clipPath: "polygon(100% 0%, 100% 100%, 0% 100%)",
+            background: "linear-gradient(135deg, #06b6d4, #3b82f6)",
+          }}
+        />
+        <div className="absolute -top-2 -left-2 w-6 h-6 opacity-40"
+          style={{
+            clipPath: "polygon(0% 0%, 100% 0%, 0% 100%)",
+            background: "linear-gradient(135deg, #3b82f6, #06b6d4)",
+          }}
+        />
+      </div>
+
+      {/* Text */}
+      <div className="flex-1 text-center md:text-left max-w-lg">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+        >
+          <p className="text-xs font-mono tracking-[0.3em] text-cyan-400 uppercase mb-2">{role}</p>
+          <h3
+            className="text-3xl md:text-4xl font-black mb-4"
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              background: "linear-gradient(135deg, #f0f9ff, #bae6fd, #7dd3fc)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            {name}
+          </h3>
+          <div
+            className="w-12 h-[2px] mb-5 mx-auto md:mx-0"
+            style={{ background: "linear-gradient(90deg, #06b6d4, transparent)" }}
+          />
+          <p
+            className="text-base leading-relaxed"
+            style={{ color: "rgba(186,230,253,0.7)", fontFamily: "'DM Sans', sans-serif" }}
+          >
+            {bio}
+          </p>
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── animated logo ─────────────────────────────────────────────────────────────
+function AnimatedLogo({ onDone }: { onDone: () => void }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 0 }}
+      transition={{ delay: 2.2, duration: 0.4 }}
+      onAnimationComplete={onDone}
+    >
+      <motion.div
+        className="flex items-center gap-3"
+        initial={{ scale: 1.4, opacity: 0 }}
+        animate={{ scale: 1, opacity: [0, 1, 1, 0] }}
+        transition={{ duration: 2.4, times: [0, 0.2, 0.75, 1] }}
+      >
+        <motion.div
+          animate={{ rotate: [0, 360] }}
+          transition={{ duration: 1.5, ease: "easeInOut" }}
+        >
+          <Fingerprint className="h-16 w-16 text-cyan-400 drop-shadow-[0_0_20px_rgba(6,182,212,0.8)]" />
+        </motion.div>
+        <span
+          className="text-5xl font-black"
+          style={{
+            fontFamily: "'Syne', sans-serif",
+            background: "linear-gradient(135deg, #f0f9ff, #06b6d4)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
+          BioLogix
+        </span>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── features 
 const features = [
   {
     icon: Fingerprint,
     title: "Biometric Import",
-    desc: "Plug in your ZKTeco flash drive and import employee data instantly.",
+    desc: "Plug in your ZKTeco flash drive and import employee data in seconds. No manual entry.",
   },
   {
     icon: Clock,
-    title: "Real-time Attendance Tracking",
-    desc: "Clock in, clock out, hours worked — all captured automatically.",
+    title: "Real-time Tracking",
+    desc: "Clock in, clock out, hours worked — all captured automatically from machine logs.",
   },
   {
     icon: FileSpreadsheet,
-    title: "Export Reports",
-    desc: "Generate Excel reports by department, month, or year with one click.",
+    title: "Excel Reports",
+    desc: "Generate department, monthly, or yearly reports with attendance analytics and color-coded status.",
+  },
+  {
+    icon: Zap,
+    title: "Instant Sync",
+    desc: "Two-machine support for separate entry/exit tracking. Smart punch detection built in.",
+  },
+  {
+    icon: Shield,
+    title: "Secure Access",
+    desc: "JWT-protected admin portal. Your employee data stays yours — no third-party cloud.",
+  },
+  {
+    icon: BarChart3,
+    title: "Shift Analytics",
+    desc: "Morning, afternoon, night, or day shifts. Expected vs actual hours tracked per employee.",
   },
 ];
 
+// ─── founders 
+const founders = [
+  {
+    name: "Oladimeji Opeyemi",
+    role: "Co-Founder & Innovator",
+    bio: "Replace this with your own story. How did you come up with BioLogix? What problem were you solving? What did you build and why does it matter? This is your space to tell people who you are and what drove you to build something this meaningful for organizations that rely on accurate attendance data.",
+
+  },
+  {
+    name: "Gaji Yaqub",
+    role: "Co-Founder & Lead Developer",
+    imageSrc: "/founders/Gaji.png",
+    bio: "Replace this with your co-founder's story. What was your contribution? What did you innovate? How did working together shape BioLogix into what it is today? People connect with the human story behind a product — use this space to make yours memorable.",
+  },
+];
+
+// ─── main 
 export default function Landing() {
+  const [logoAnimDone, setLogoAnimDone] = useState(false);
+  const [showNav, setShowNav]           = useState(false);
+  const containerRef                    = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShowNav(true), 2600);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
-        <div className="flex items-center gap-2">
-          <Fingerprint className="h-7 w-7 text-primary" />
-          <span className="text-xl font-bold text-foreground">BioLogix</span>
-        </div>
-        <Link to="/login">
-          <Button variant="outline" className="border-primary/50 text-primary hover:bg-primary hover:text-primary-foreground">
-            Admin Login
-          </Button>
-        </Link>
-      </header>
+    <>
+      {/* Google Fonts */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+        html { scroll-behavior: smooth; }
+        .shard-hover:hover { filter: brightness(1.1); }
+      `}</style>
 
-      {/* Hero */}
-      <section className="flex flex-col items-center justify-center px-6 pt-16 pb-24 text-center max-w-4xl mx-auto">
-        <FingerprintAnimation />
-        <motion.h1
-          className="mt-10 text-4xl md:text-5xl lg:text-6xl font-extrabold text-foreground leading-tight"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-        >
-          Bio<span className="text-primary">Logix</span>
-        </motion.h1>
-        <motion.p
-          className="mt-2 text-lg text-muted-foreground"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
-        >
-          Biometric Attendance Management System
-        </motion.p>
-        <motion.p
-          className="mt-4 text-xl text-secondary-foreground max-w-xl"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.9 }}
-        >
-          Automating employee attendance capture for modern organizations
-        </motion.p>
-      </section>
+      {/* Intro logo animation */}
+      {!logoAnimDone && (
+        <AnimatedLogo onDone={() => setLogoAnimDone(true)} />
+      )}
 
-      {/* Features */}
-      <section className="max-w-5xl mx-auto px-6 pb-24 grid grid-cols-1 md:grid-cols-3 gap-6">
-        {features.map((f, i) => (
+      <div
+        ref={containerRef}
+        className="min-h-screen relative"
+        style={{
+          background: "linear-gradient(160deg, #060d1a 0%, #091525 40%, #060e1c 100%)",
+          fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
+        <FingerprintBg />
+        <GlowOrbs />
+
+        {/* Scanline overlay */}
+        <div
+          className="fixed inset-0 pointer-events-none z-0 opacity-[0.025]"
+          style={{
+            backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(6,182,212,0.3) 2px, rgba(6,182,212,0.3) 3px)",
+          }}
+        />
+
+        {/* ── NAV ── */}
+        <AnimatePresence>
+          {showNav && (
+            <motion.header
+              className="fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-6 md:px-10 py-4"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              style={{
+                background: "rgba(6,13,26,0.8)",
+                backdropFilter: "blur(12px)",
+                borderBottom: "1px solid rgba(6,182,212,0.12)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <motion.div
+                  animate={{ filter: ["drop-shadow(0 0 6px rgba(6,182,212,0.6))", "drop-shadow(0 0 14px rgba(6,182,212,0.9))", "drop-shadow(0 0 6px rgba(6,182,212,0.6))"] }}
+                  transition={{ duration: 3, repeat: Infinity }}
+                >
+                  <Fingerprint className="h-7 w-7 text-cyan-400" />
+                </motion.div>
+                <span
+                  className="text-xl font-black"
+                  style={{
+                    fontFamily: "'Syne', sans-serif",
+                    background: "linear-gradient(135deg, #f0f9ff, #06b6d4)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  BioLogix
+                </span>
+              </div>
+
+              <nav className="hidden md:flex items-center gap-8 text-sm" style={{ color: "rgba(186,230,253,0.6)" }}>
+                {["Features", "Founders", "About", "Contact"].map((item) => (
+                  <a
+                    key={item}
+                    href={`#${item.toLowerCase()}`}
+                    className="hover:text-cyan-400 transition-colors tracking-wide"
+                  >
+                    {item}
+                  </a>
+                ))}
+              </nav>
+
+              <Link to="/login">
+                <Button
+                  className="text-sm font-semibold gap-2"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(6,182,212,0.2), rgba(59,130,246,0.15))",
+                    border: "1px solid rgba(6,182,212,0.4)",
+                    color: "#67e8f9",
+                  }}
+                >
+                  Admin Login <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            </motion.header>
+          )}
+        </AnimatePresence>
+
+        {/* ── HERO ── */}
+        <section className="relative flex flex-col items-center justify-center px-6 pt-36 pb-28 text-center max-w-5xl mx-auto">
           <motion.div
-            key={f.title}
-            className="glass-card rounded-xl p-6 hover:glow-teal transition-shadow"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.1 + i * 0.15 }}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: logoAnimDone ? 0 : 2.6, duration: 0.8 }}
           >
-            <f.icon className="h-10 w-10 text-primary mb-4" />
-            <h3 className="text-lg font-semibold text-foreground mb-2">{f.title}</h3>
-            <p className="text-sm text-muted-foreground">{f.desc}</p>
+            <FingerprintAnimation />
           </motion.div>
-        ))}
-      </section>
-    </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: logoAnimDone ? 0.1 : 2.8, duration: 0.7 }}
+            className="mt-8"
+          >
+            <p className="text-xs font-mono tracking-[0.4em] text-cyan-400 uppercase mb-4">
+              Biometric Attendance Management
+            </p>
+            <h1
+              className="text-5xl md:text-6xl lg:text-7xl font-black leading-[0.95] mb-6"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                background: "linear-gradient(135deg, #f0f9ff 0%, #bae6fd 40%, #06b6d4 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Bio<span style={{ color: "#06b6d4", WebkitTextFillColor: "#06b6d4" }}>Logix</span>
+            </h1>
+            <p
+              className="text-lg md:text-xl max-w-2xl mx-auto leading-relaxed"
+              style={{ color: "rgba(186,230,253,0.65)" }}
+            >
+              Replacing expensive ZKTeco software with a custom-built system that does more —
+              biometric imports, real-time tracking, and beautiful Excel reports.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: logoAnimDone ? 0.3 : 3.1, duration: 0.6 }}
+            className="mt-10 flex flex-wrap gap-4 justify-center"
+          >
+            <Link to="/login">
+              <Button
+                size="lg"
+                className="font-semibold px-8 gap-2 text-base"
+                style={{
+                  background: "linear-gradient(135deg, #0891b2, #3b82f6)",
+                  border: "none",
+                  color: "white",
+                  boxShadow: "0 0 30px rgba(6,182,212,0.3)",
+                }}
+              >
+                Open Dashboard <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+            <a href="#features">
+              <Button
+                size="lg"
+                variant="outline"
+                className="font-semibold px-8 text-base"
+                style={{
+                  borderColor: "rgba(6,182,212,0.3)",
+                  color: "#67e8f9",
+                  background: "transparent",
+                }}
+              >
+                See Features
+              </Button>
+            </a>
+          </motion.div>
+
+          {/* Scroll indicator */}
+          <motion.div
+            className="absolute bottom-6 left-1/2 -translate-x-1/2"
+            animate={{ y: [0, 8, 0], opacity: [0.4, 0.8, 0.4] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <div className="w-[1px] h-12 mx-auto" style={{ background: "linear-gradient(180deg, transparent, #06b6d4, transparent)" }} />
+          </motion.div>
+        </section>
+
+        {/* ── FEATURES ── */}
+        <section id="features" className="relative max-w-6xl mx-auto px-6 pb-32">
+          <motion.div
+            className="text-center mb-16"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <p className="text-xs font-mono tracking-[0.4em] text-cyan-400 uppercase mb-3">What It Does</p>
+            <h2
+              className="text-4xl md:text-5xl font-black"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                background: "linear-gradient(135deg, #f0f9ff, #7dd3fc)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Built Different
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {features.map((f, i) => (
+              <motion.div
+                key={f.title}
+                className="relative rounded-2xl p-6 overflow-hidden group cursor-default"
+                style={{
+                  background: "linear-gradient(135deg, rgba(6,182,212,0.06), rgba(59,130,246,0.04))",
+                  border: "1px solid rgba(6,182,212,0.12)",
+                }}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.08, duration: 0.5 }}
+                whileHover={{ borderColor: "rgba(6,182,212,0.35)", scale: 1.02 }}
+              >
+                <div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                  style={{ background: "radial-gradient(circle at 50% 0%, rgba(6,182,212,0.08), transparent 70%)" }}
+                />
+                <motion.div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
+                  style={{ background: "rgba(6,182,212,0.12)", border: "1px solid rgba(6,182,212,0.2)" }}
+                  whileHover={{ scale: 1.1 }}
+                >
+                  <f.icon className="h-5 w-5 text-cyan-400" />
+                </motion.div>
+                <h3
+                  className="text-base font-bold mb-2"
+                  style={{ fontFamily: "'Syne', sans-serif", color: "#e0f2fe" }}
+                >
+                  {f.title}
+                </h3>
+                <p className="text-sm leading-relaxed" style={{ color: "rgba(186,230,253,0.55)" }}>
+                  {f.desc}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── FOUNDERS ── */}
+        <section id="founders" className="relative max-w-5xl mx-auto px-6 pb-36">
+          <motion.div
+            className="text-center mb-20"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <p className="text-xs font-mono tracking-[0.4em] text-cyan-400 uppercase mb-3">The People</p>
+            <h2
+              className="text-4xl md:text-5xl font-black"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                background: "linear-gradient(135deg, #f0f9ff, #7dd3fc)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Who Built This
+            </h2>
+          </motion.div>
+
+          <div className="space-y-24">
+            {founders.map((founder, i) => (
+              <ShardFrame key={founder.name} {...founder} index={i} />
+            ))}
+          </div>
+        </section>
+
+        {/* ── ABOUT ── */}
+        <section id="about" className="relative max-w-4xl mx-auto px-6 pb-32">
+          <div
+            className="rounded-3xl p-10 md:p-14 relative overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg, rgba(6,182,212,0.07), rgba(59,130,246,0.05))",
+              border: "1px solid rgba(6,182,212,0.15)",
+            }}
+          >
+            <div
+              className="absolute top-0 right-0 w-64 h-64 opacity-20"
+              style={{
+                background: "radial-gradient(circle, rgba(6,182,212,0.4), transparent 70%)",
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+            >
+              <p className="text-xs font-mono tracking-[0.4em] text-cyan-400 uppercase mb-3">About</p>
+              <h2
+                className="text-3xl md:text-4xl font-black mb-6"
+                style={{
+                  fontFamily: "'Syne', sans-serif",
+                  background: "linear-gradient(135deg, #f0f9ff, #7dd3fc)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                Why BioLogix Exists
+              </h2>
+              <div className="space-y-4" style={{ color: "rgba(186,230,253,0.65)", lineHeight: "1.8" }}>
+                <p>
+                  BioLogix was built out of frustration with ZKTeco's overpriced, clunky desktop software.
+                  Organizations with biometric attendance machines deserved a modern, web-based system that
+                  they could actually own and customize — not a black-box install that locks you in.
+                </p>
+                <p>
+                  We built a full-stack replacement: a FastAPI backend that reads the raw binary DAT files
+                  directly off the machine, a PostgreSQL database for clean storage, and a React dashboard
+                  that makes attendance management intuitive for any HR team.
+                </p>
+                <p>
+                  BioLogix supports multi-machine setups, shift-based expected hours, department analytics,
+                  holiday exclusions, and one-click Excel exports — everything the original software charged
+                  a premium for, and more.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ── CONTACT ── */}
+        <section id="contact" className="relative max-w-4xl mx-auto px-6 pb-32">
+          <motion.div
+            className="text-center mb-12"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <p className="text-xs font-mono tracking-[0.4em] text-cyan-400 uppercase mb-3">Get In Touch</p>
+            <h2
+              className="text-4xl md:text-5xl font-black"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                background: "linear-gradient(135deg, #f0f9ff, #7dd3fc)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Contact
+            </h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[
+              { icon: Mail,    label: "Email",    value: "hello@biologix.app",   href: "mailto:hello@biologix.app" },
+              { icon: Phone,   label: "Phone",    value: "+234 — — — — — —",     href: "#" },
+              { icon: MapPin,  label: "Location", value: "Nigeria",               href: "#" },
+            ].map((item, i) => (
+              <motion.a
+                key={item.label}
+                href={item.href}
+                className="flex flex-col items-center gap-3 rounded-2xl p-6 text-center group"
+                style={{
+                  background: "rgba(6,182,212,0.05)",
+                  border: "1px solid rgba(6,182,212,0.1)",
+                }}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+                whileHover={{ borderColor: "rgba(6,182,212,0.3)", scale: 1.03 }}
+              >
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center"
+                  style={{ background: "rgba(6,182,212,0.12)" }}
+                >
+                  <item.icon className="h-5 w-5 text-cyan-400" />
+                </div>
+                <p className="text-xs font-mono tracking-widest text-cyan-400/60 uppercase">{item.label}</p>
+                <p className="text-sm font-medium" style={{ color: "#bae6fd" }}>{item.value}</p>
+              </motion.a>
+            ))}
+          </div>
+        </section>
+
+        {/* ── FOOTER ── */}
+        <footer
+          className="relative px-6 py-8 text-center"
+          style={{ borderTop: "1px solid rgba(6,182,212,0.08)" }}
+        >
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <Fingerprint className="h-5 w-5 text-cyan-400/50" />
+            <span
+              className="font-black text-lg"
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                background: "linear-gradient(135deg, #94a3b8, #67e8f9)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              BioLogix
+            </span>
+          </div>
+          <p className="text-xs" style={{ color: "rgba(186,230,253,0.3)" }}>
+            © {new Date().getFullYear()} BioLogix. Built with precision.
+          </p>
+        </footer>
+      </div>
+    </>
   );
 }

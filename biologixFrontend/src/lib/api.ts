@@ -1,10 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://biologixbackend.onrender.com';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"; //'https://biologixbackend.onrender.com'
 
 function getToken(): string | null {
   return localStorage.getItem('biologix_token');
 }
-
-
 
 function clearAuth() {
   localStorage.removeItem('biologix_token');
@@ -55,6 +53,14 @@ export async function login(email: string, password: string) {
   });
   localStorage.setItem('biologix_token', data.token);
   return data;
+}
+
+export async function getImportStatus(jobId: string) {
+  const res = await fetch(`${API_BASE}/import/status/${jobId}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch status");
+  return res.json();
 }
 
 // Employees
@@ -141,23 +147,54 @@ export async function importUsers(file: File) {
 export async function importAttendance(file: File, type: "clock_in" | "clock_out") {
   const formData = new FormData();
   formData.append('file', file);
-
   return request<any>(`/import/attendance?type=${type}`, {
     method: 'POST',
     body: formData,
   });
 }
 
-// Export
-export async function exportAttendance(params: Record<string, string>) {
-  const query = new URLSearchParams(params).toString();
+// Export — fetches CSV/Excel and triggers browser download
+export async function exportAttendance(
+  params: Record<string, string | number>,
+  filename?: string
+): Promise<void> {
+  const query = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))
+  ).toString();
+
   const token = getToken();
   const res = await fetch(`${API_BASE}/export/attendance?${query}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+
   if (res.status === 403) { clearAuth(); throw new Error('Session expired'); }
   if (!res.ok) throw new Error('Export failed');
-  return res.blob();
+
+  const blob = await res.blob();
+
+  // Derive filename from Content-Disposition header, fallback to param-based name
+  const disposition = res.headers.get('content-disposition');
+  let downloadName = filename;
+  if (!downloadName) {
+    if (disposition) {
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      downloadName = match ? match[1].replace(/['"]/g, "") : undefined;
+    }
+    if (!downloadName) {
+      const suffix = params.user_id ? `_employee_${params.user_id}` : "";
+      downloadName = `attendance${suffix}_${params.date_from ?? ""}_${params.date_to ?? ""}.xlsx`;
+    }
+  }
+
+  // Trigger download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = downloadName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export { getToken, clearAuth };

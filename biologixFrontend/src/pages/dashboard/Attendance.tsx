@@ -1,52 +1,283 @@
-import { useEffect, useState } from "react";
-import { getAttendanceSummary, getDepartments } from "@/lib/api";
+import { useEffect, useState, useMemo } from "react";
+import { getAttendanceSummary, getDepartments, exportAttendance } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Search, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
+import {
+  Search, Filter, X, ChevronLeft, ChevronRight,
+  Download, Calendar, Clock, CheckCircle2, XCircle,
+  TrendingUp, User
+} from "lucide-react";
 
-const PAGE_SIZE = 50;
+// ─── helpers ────────────────────────────────────────────────────────────────
 
-function threeMonthsAgo() {
+function today() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function startOf(monthsBack: number) {
   const d = new Date();
-  d.setMonth(d.getMonth() - 3);
+  d.setDate(1);
+  d.setMonth(d.getMonth() - monthsBack);
   return d.toISOString().split("T")[0];
 }
 
-// Converts DB timestamp string to local time with AM/PM
+function endOfLastMonth() {
+  const d = new Date();
+  d.setDate(0);
+  return d.toISOString().split("T")[0];
+}
+
+const DATE_PRESETS = [
+  { label: "This Month", from: () => startOf(0),  to: () => today()          },
+  { label: "Last Month", from: () => startOf(1),  to: () => endOfLastMonth() },
+  { label: "3 Months",   from: () => startOf(3),  to: () => today()          },
+  { label: "6 Months",   from: () => startOf(6),  to: () => today()          },
+];
+
 function formatTime(ts: string | null): string {
   if (!ts) return "—";
-
-  // Remove quotes if any
   ts = ts.replace(/"/g, "");
-
-  // Split on space or T
   const timePart = ts.includes("T") ? ts.split("T")[1] : ts.split(" ")[1];
   if (!timePart) return "—";
-
   const [hourStr, minuteStr] = timePart.split(":");
   const hour = parseInt(hourStr, 10);
   const ampm = hour >= 12 ? "PM" : "AM";
   const hour12 = hour % 12 || 12;
-
   return `${hour12}:${minuteStr} ${ampm}`;
 }
 
-export default function Attendance() {
-  const [data, setData] = useState<any[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [search, setSearch] = useState("");
-  const [deptFilter, setDeptFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState(threeMonthsAgo());
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+function formatShortDate(dateStr: string): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" });
+}
 
-  const load = () => {
+function safeFilename(name: string, badge: string | number) {
+  return `${name.replace(/\s+/g, "_")}_#${badge}`;
+}
+
+// ─── types ───────────────────────────────────────────────────────────────────
+
+interface AttendanceRow {
+  user_id: string | number;
+  badge_number: string | number;
+  employee_name: string;
+  department_name: string;
+  date: string;
+  clock_in: string | null;
+  clock_out: string | null;
+  hours_worked: number | null;
+  status: string;
+}
+
+interface EmployeeGroup {
+  user_id: string | number;
+  badge_number: string | number;
+  employee_name: string;
+  department_name: string;
+  records: AttendanceRow[];
+  days_present: number;
+  total_hours: number;
+  last_seen: string;
+}
+
+// ─── employee card ────────────────────────────────────────────────────────────
+
+function EmployeeCard({ emp, onClick }: { emp: EmployeeGroup; onClick: () => void }) {
+  const attendanceRate = emp.records.length > 0
+    ? Math.round((emp.days_present / emp.records.length) * 100)
+    : 0;
+
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left glass-card rounded-xl p-4 hover:bg-secondary/40 transition-all duration-200 hover:scale-[1.01] hover:shadow-lg group"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0 group-hover:bg-primary/25 transition-colors">
+            <User className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-foreground text-sm truncate">{emp.employee_name || "—"}</p>
+            <p className="text-xs text-muted-foreground truncate">{emp.department_name || "—"}</p>
+          </div>
+        </div>
+        <span className="font-mono text-xs bg-secondary px-2 py-1 rounded-md text-muted-foreground shrink-0">
+          #{emp.badge_number}
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="bg-secondary/50 rounded-lg p-2">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Days Present</p>
+          <p className="font-bold text-sm text-foreground">{emp.days_present}</p>
+        </div>
+        <div className="bg-secondary/50 rounded-lg p-2">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Total Hours</p>
+          <p className="font-bold text-sm text-foreground">{emp.total_hours.toFixed(1)}h</p>
+        </div>
+        <div className="bg-secondary/50 rounded-lg p-2">
+          <p className="text-[10px] text-muted-foreground mb-0.5">Attendance</p>
+          <p className={`font-bold text-sm ${attendanceRate >= 80 ? "text-green-500" : attendanceRate >= 60 ? "text-yellow-500" : "text-red-500"}`}>
+            {attendanceRate}%
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 h-1.5 bg-secondary rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all ${attendanceRate >= 80 ? "bg-green-500" : attendanceRate >= 60 ? "bg-yellow-500" : "bg-red-500"}`}
+          style={{ width: `${attendanceRate}%` }}
+        />
+      </div>
+    </button>
+  );
+}
+
+// ─── employee detail modal ────────────────────────────────────────────────────
+
+function EmployeeModal({
+  emp, onClose, dateFrom, dateTo,
+}: {
+  emp: EmployeeGroup; onClose: () => void; dateFrom: string; dateTo: string;
+}) {
+  const [exporting, setExporting] = useState(false);
+
+  const sorted      = [...emp.records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const daysPresent = emp.records.filter((r) => r.status === "present").length;
+  const daysAbsent  = emp.records.filter((r) => r.status === "absent").length;
+  const avgHours    = daysPresent > 0 ? emp.total_hours / daysPresent : 0;
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const filename = `${safeFilename(emp.employee_name, emp.badge_number)}_${dateFrom}_${dateTo}.xlsx`;
+      await exportAttendance(
+        { date_from: dateFrom, date_to: dateTo, user_id: emp.user_id },
+        filename
+      );
+      toast.success("Export downloaded");
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="relative w-full sm:max-w-2xl bg-background border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center">
+              <User className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="font-bold text-foreground">{emp.employee_name}</h2>
+              <p className="text-xs text-muted-foreground">
+                Employee ID #{emp.badge_number} · {emp.department_name}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4 border-b border-border shrink-0">
+          <div className="bg-secondary/50 rounded-xl p-3 text-center">
+            <CheckCircle2 className="h-4 w-4 text-green-500 mx-auto mb-1" />
+            <p className="text-lg font-bold text-foreground">{daysPresent}</p>
+            <p className="text-[10px] text-muted-foreground">Days Present</p>
+          </div>
+          <div className="bg-secondary/50 rounded-xl p-3 text-center">
+            <XCircle className="h-4 w-4 text-red-500 mx-auto mb-1" />
+            <p className="text-lg font-bold text-foreground">{daysAbsent}</p>
+            <p className="text-[10px] text-muted-foreground">Days Absent</p>
+          </div>
+          <div className="bg-secondary/50 rounded-xl p-3 text-center">
+            <Clock className="h-4 w-4 text-primary mx-auto mb-1" />
+            <p className="text-lg font-bold text-foreground">{emp.total_hours.toFixed(1)}h</p>
+            <p className="text-[10px] text-muted-foreground">Total Hours</p>
+          </div>
+          <div className="bg-secondary/50 rounded-xl p-3 text-center">
+            <TrendingUp className="h-4 w-4 text-yellow-500 mx-auto mb-1" />
+            <p className="text-lg font-bold text-foreground">{avgHours.toFixed(1)}h</p>
+            <p className="text-[10px] text-muted-foreground">Avg / Day</p>
+          </div>
+        </div>
+
+        {/* Records */}
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+          {sorted.map((row, i) => (
+            <div
+              key={i}
+              className={`rounded-xl p-3 flex items-center justify-between gap-3 ${
+                row.status === "present" ? "bg-secondary/40" : "bg-destructive/5 border border-destructive/15"
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Calendar className={`h-3.5 w-3.5 shrink-0 ${row.status === "present" ? "text-primary" : "text-destructive/50"}`} />
+                <span className="text-xs font-medium text-foreground truncate">{formatShortDate(row.date)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs shrink-0">
+                <span className="text-green-600 dark:text-green-400 font-mono">{formatTime(row.clock_in)}</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="text-orange-500 font-mono">{formatTime(row.clock_out)}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {row.hours_worked != null && (
+                  <span className="text-xs text-muted-foreground">{row.hours_worked}h</span>
+                )}
+                <span className={`w-2 h-2 rounded-full ${row.status === "present" ? "bg-green-500" : "bg-red-500"}`} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Export footer */}
+        <div className="px-5 py-4 border-t border-border shrink-0">
+          <Button onClick={handleExport} disabled={exporting} className="w-full gap-2">
+            <Download className="h-4 w-4" />
+            {exporting ? "Exporting..." : `Export ${emp.employee_name} (#${emp.badge_number})`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── main page ────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 24;
+
+export default function Attendance() {
+  const [data, setData]                   = useState<AttendanceRow[]>([]);
+  const [departments, setDepartments]     = useState<any[]>([]);
+  const [search, setSearch]               = useState("");
+  const [deptFilter, setDeptFilter]       = useState("");
+  const [dateFrom, setDateFrom]           = useState(startOf(3));
+  const [dateTo, setDateTo]               = useState(today());
+  const [activePreset, setActivePreset]   = useState("3 Months");
+  const [page, setPage]                   = useState(0);
+  const [loading, setLoading]             = useState(true);
+  const [filtersOpen, setFiltersOpen]     = useState(false);
+  const [selected, setSelected]           = useState<EmployeeGroup | null>(null);
+
+  const load = (from = dateFrom, to = dateTo, dept = deptFilter) => {
     setLoading(true);
-    const params: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
-    if (deptFilter) params.department_id = deptFilter;
+    const params: Record<string, string> = { date_from: from, date_to: to };
+    if (dept) params.department_id = dept;
 
     Promise.all([getAttendanceSummary(params), getDepartments().catch(() => [])])
       .then(([att, depts]) => {
@@ -60,26 +291,59 @@ export default function Attendance() {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = data
-    .filter((r) => {
-      const q = search.toLowerCase();
-      return (
-        !q ||
-        (r.employee_name || "").toLowerCase().includes(q) ||
-        (r.badge_number  || "").toString().includes(q)
-      );
-    })
-    .sort((a, b) =>
-      (a.badge_number || "").toString().localeCompare((b.badge_number || "").toString())
+  const applyPreset = (preset: typeof DATE_PRESETS[0]) => {
+    const from = preset.from();
+    const to   = preset.to();
+    setDateFrom(from);
+    setDateTo(to);
+    setActivePreset(preset.label);
+    setFiltersOpen(false);
+    load(from, to);
+  };
+
+  const applyCustom = () => {
+    setActivePreset("");
+    load(dateFrom, dateTo);
+    setFiltersOpen(false);
+  };
+
+  const employeeGroups = useMemo<EmployeeGroup[]>(() => {
+    const map = new Map<string, EmployeeGroup>();
+    for (const row of data) {
+      const key = String(row.user_id);
+      if (!map.has(key)) {
+        map.set(key, {
+          user_id: row.user_id,
+          badge_number: row.badge_number,
+          employee_name: row.employee_name,
+          department_name: row.department_name,
+          records: [],
+          days_present: 0,
+          total_hours: 0,
+          last_seen: row.date,
+        });
+      }
+      const grp = map.get(key)!;
+      grp.records.push(row);
+      if (row.status === "present") grp.days_present++;
+      if (row.hours_worked) grp.total_hours += row.hours_worked;
+      if (row.date > grp.last_seen) grp.last_seen = row.date;
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.badge_number).localeCompare(String(b.badge_number), undefined, { numeric: true })
     );
+  }, [data]);
+
+  const filtered = useMemo(() =>
+    employeeGroups.filter((emp) => {
+      const q = search.toLowerCase();
+      return !q || (emp.employee_name || "").toLowerCase().includes(q) || String(emp.badge_number).includes(q);
+    }),
+    [employeeGroups, search]
+  );
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageData   = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  const statusClass = (status: string) =>
-    status === "present"
-      ? "bg-success/15 text-success"
-      : "bg-destructive/15 text-destructive";
 
   return (
     <div className="space-y-4">
@@ -88,7 +352,7 @@ export default function Attendance() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Attendance</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} records</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{filtered.length} employees</p>
         </div>
         <Button
           variant="outline"
@@ -104,14 +368,43 @@ export default function Attendance() {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search name or badge number..."
+          placeholder="Search by name or Employee ID..."
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           className="pl-9"
         />
       </div>
 
-      {/* Filters panel */}
+      {/* Date presets */}
+      <div className="flex gap-2 flex-wrap">
+        {DATE_PRESETS.map((preset) => (
+          <button
+            key={preset.label}
+            onClick={() => applyPreset(preset)}
+            disabled={loading}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              activePreset === preset.label
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+            }`}
+          >
+            {preset.label}
+          </button>
+        ))}
+        <button
+          onClick={() => setFiltersOpen(!filtersOpen)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
+            !activePreset
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+          }`}
+        >
+          <Calendar className="h-3 w-3" />
+          Custom
+        </button>
+      </div>
+
+      {/* Custom range + dept filter */}
       {filtersOpen && (
         <div className="glass-card rounded-xl p-4 flex flex-col sm:flex-row gap-3 flex-wrap">
           <select
@@ -128,143 +421,53 @@ export default function Attendance() {
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="flex-1" />
             <Input type="date" value={dateTo}   onChange={(e) => setDateTo(e.target.value)}   className="flex-1" />
           </div>
-          <Button onClick={() => { load(); setFiltersOpen(false); }} disabled={loading} className="w-full sm:w-auto">
+          <Button onClick={applyCustom} disabled={loading} className="w-full sm:w-auto">
             {loading ? "Loading..." : "Apply"}
           </Button>
         </div>
       )}
 
-      {/* Desktop table */}
-      <div className="glass-card rounded-xl overflow-hidden hidden md:block">
-        {loading ? (
-          <div className="p-8 text-center text-muted-foreground">Loading attendance data...</div>
-        ) : pageData.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">No attendance records found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="px-4 py-3 text-left">Badge #</th>
-                  <th className="px-4 py-3 text-left">Machine ID</th>
-                  <th className="px-4 py-3 text-left">Employee</th>
-                  <th className="px-4 py-3 text-left">Department</th>
-                  <th className="px-4 py-3 text-left">Date</th>
-                  <th className="px-4 py-3 text-left">Clock In</th>
-                  <th className="px-4 py-3 text-left">Clock Out</th>
-                  <th className="px-4 py-3 text-left">Hours</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageData.map((row: any, i: number) => (
-                  <tr key={i} className="border-b border-border/50 hover:bg-secondary/30">
-                    <td className="px-4 py-3 font-mono text-xs">{row.badge_number || "—"}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{row.user_id || "—"}</td>
-                    <td className="px-4 py-3 font-medium">{row.employee_name || "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.department_name || "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.date}</td>
-                    <td className="px-4 py-3 font-medium">{formatTime(row.clock_in)}</td>
-                    <td className="px-4 py-3 font-medium">{formatTime(row.clock_out)}</td>
-                    <td className="px-4 py-3">
-                      {row.hours_worked != null ? `${row.hours_worked}h` : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusClass(row.status)}`}>
-                        {row.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* Grid */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="glass-card rounded-xl p-4 animate-pulse h-36 bg-secondary/30" />
+          ))}
+        </div>
+      ) : pageData.length === 0 ? (
+        <div className="glass-card rounded-xl p-12 text-center text-muted-foreground">No employees found.</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {pageData.map((emp) => (
+            <EmployeeCard key={String(emp.user_id)} emp={emp} onClick={() => setSelected(emp)} />
+          ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-sm text-muted-foreground">Page {page + 1} of {totalPages}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
-        )}
+        </div>
+      )}
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <span className="text-sm text-muted-foreground">
-              Page {page + 1} of {totalPages} · {filtered.length} records
-            </span>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Mobile cards */}
-      <div className="md:hidden space-y-3">
-        {loading ? (
-          <div className="p-8 text-center text-muted-foreground">Loading attendance data...</div>
-        ) : pageData.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">No attendance records found.</div>
-        ) : (
-          pageData.map((row: any, i: number) => (
-            <div key={i} className="glass-card rounded-xl p-4 space-y-3">
-
-              {/* Name + status */}
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-foreground text-sm">{row.employee_name || "—"}</p>
-                  <p className="text-xs text-muted-foreground">{row.department_name || "—"}</p>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${statusClass(row.status)}`}>
-                  {row.status}
-                </span>
-              </div>
-
-              {/* IDs */}
-              <div className="flex gap-4 text-xs text-muted-foreground">
-                <span>Badge: <span className="font-mono text-foreground">{row.badge_number || "—"}</span></span>
-                <span>Machine ID: <span className="font-mono text-foreground">{row.user_id || "—"}</span></span>
-              </div>
-
-              {/* Date + times */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="bg-secondary/50 rounded-lg p-2 text-center">
-                  <p className="text-muted-foreground mb-0.5">Date</p>
-                  <p className="font-medium text-foreground">{row.date}</p>
-                </div>
-                <div className="bg-secondary/50 rounded-lg p-2 text-center">
-                  <p className="text-muted-foreground mb-0.5">Clock In</p>
-                  <p className="font-medium text-foreground">{formatTime(row.clock_in)}</p>
-                </div>
-                <div className="bg-secondary/50 rounded-lg p-2 text-center">
-                  <p className="text-muted-foreground mb-0.5">Clock Out</p>
-                  <p className="font-medium text-foreground">{formatTime(row.clock_out)}</p>
-                </div>
-              </div>
-
-              {/* Hours */}
-              {row.hours_worked != null && (
-                <p className="text-xs text-muted-foreground">
-                  Hours worked: <span className="text-foreground font-medium">{row.hours_worked}h</span>
-                </p>
-              )}
-            </div>
-          ))
-        )}
-
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-sm text-muted-foreground">Page {page + 1} of {totalPages}</span>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Detail modal */}
+      {selected && (
+        <EmployeeModal
+          emp={selected}
+          onClose={() => setSelected(null)}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+        />
+      )}
     </div>
   );
 }
