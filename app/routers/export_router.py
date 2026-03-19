@@ -46,7 +46,7 @@ AMBER_FG      = "7F6000"
 SUMMARY_BG    = "EBF3FB"
 SUMMARY_BOLD  = "1B2A4A"
 
-# ── Borders ────────────────────────────────────────────────────────────────────
+# ── Borders ───────────────────────────────────────────────────────────────────
 def thin_border(color="CCCCCC"):
     s = Side(style="thin", color=color)
     return Border(left=s, right=s, top=s, bottom=s)
@@ -57,21 +57,21 @@ def thick_bottom(color=NAVY):
 THIN   = thin_border()
 MEDIUM = thin_border("AAAAAA")
 
-# ── Fonts ──────────────────────────────────────────────────────────────────────
+# ── Fonts ─────────────────────────────────────────────────────────────────────
 def hdr_font(size=10):   return Font(name="Arial", bold=True, color=WHITE, size=size)
 def body_font(size=9):   return Font(name="Arial", size=size, color=DARK_GRAY)
 def bold_font(size=9, color=DARK_GRAY): return Font(name="Arial", bold=True, size=size, color=color)
 def title_font(size=14): return Font(name="Arial", bold=True, color=NAVY, size=size)
 def sub_font(size=9):    return Font(name="Arial", italic=True, color="888888", size=size)
 
-# ── Summary columns ────────────────────────────────────────────────────────────
+# ── Summary columns ───────────────────────────────────────────────────────────
 SUMMARY_COLS   = ["Employee ID", "Name", "Department", "Shift",
                   "Days Present", "Days Absent", "Expected Days",
                   "Attendance %", "Total Hours", "Expected Hours", "Hours %", "Status"]
 SUMMARY_WIDTHS = [13, 28, 20, 12, 13, 12, 14, 14, 13, 15, 10, 12]
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Cell helpers ──────────────────────────────────────────────────────────────
 def center(ws, row, col, value, font=None, fill=None, border=None, number_format=None):
     cell = ws.cell(row=row, column=col, value=value)
     cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -94,7 +94,6 @@ def fill_of(hex_color):
 
 
 def write_title_block(ws, title, subtitle, col_count):
-    """Writes a 2-row title banner spanning all columns."""
     ws.row_dimensions[1].height = 30
     ws.row_dimensions[2].height = 16
 
@@ -126,7 +125,6 @@ def write_summary_row(ws, row_num, r, alt=False):
     attendance_pct = r["attendance_pct"]
     hours_pct      = r["hours_pct"]
 
-    # Status badge logic
     if attendance_pct is None:
         status_label = "No Data"
         status_fill  = fill_of(MID_GRAY)
@@ -156,7 +154,7 @@ def write_summary_row(ws, row_num, r, alt=False):
         r["total_hours"],
         r["expected_hours"],
         (hours_pct / 100) if hours_pct is not None else None,
-        None,  # status column handled separately
+        None,
     ]
 
     for col, val in enumerate(values, 1):
@@ -165,7 +163,6 @@ def write_summary_row(ws, row_num, r, alt=False):
         if col in (9, 10):   fmt = "0.00"
         center(ws, row_num, col, val, font=body_font(), fill=bg, border=THIN, number_format=fmt)
 
-    # Status cell
     center(ws, row_num, 12, status_label, font=status_font, fill=status_fill, border=THIN)
 
 
@@ -192,30 +189,23 @@ def write_totals_row(ws, row_num, rows, col_count):
     for col in range(1, col_count + 1):
         val = labels.get(col, None)
         fmt = None
-        if col == 8:  fmt = "0.0%"
+        if col == 8:       fmt = "0.0%"
         if col in (9, 10): fmt = "0.00"
-        cell = center(ws, row_num, col, val, font=bold_font(9, SUMMARY_BOLD),
-                      fill=tot_fill, border=MEDIUM, number_format=fmt)
+        center(ws, row_num, col, val, font=bold_font(9, SUMMARY_BOLD),
+               fill=tot_fill, border=MEDIUM, number_format=fmt)
 
 
-# ── Core data builder ──────────────────────────────────────────────────────────
-def build_user_summary(logs_with_employees, year, month=None):
-    """
-    Returns one row per employee — not per day.
-    Aggregates days present, hours, and computes attendance %.
-    """
-    from db.models.holiday import Holiday  # avoid circular if any
-
+# ── Core data builder 
+def build_user_summary(logs_with_employees, year, month=None, date_from=None, date_to=None):
     grouped = defaultdict(list)
     emp_map = {}
     for log, employee in logs_with_employees:
         grouped[(log.user_id, log.date)].append((log, employee))
         emp_map[log.user_id] = employee
 
-    # Per-user aggregates
-    user_days    = defaultdict(int)    # days present
-    user_hours   = defaultdict(float)  # total hours
-    user_dates   = defaultdict(set)    # unique dates attended
+    user_days  = defaultdict(int)
+    user_hours = defaultdict(float)
+    user_dates = defaultdict(set)
 
     for (user_id, att_date), entries in grouped.items():
         check_ins  = [e[0].timestamp for e in entries if e[0].punch_status == PunchStatusEnum.check_in]
@@ -231,9 +221,23 @@ def build_user_summary(logs_with_employees, year, month=None):
             delta = (clock_out - clock_in).total_seconds() / 3600
             user_hours[user_id] += round(delta, 2)
 
-    # Expected working days in the period (Mon–Fri or Mon–Sat based on employee)
-    def count_working_days(work_days_val, year, month):
-        if not work_days_val or not month:
+    def count_working_days(work_days_val, year, month, date_from=None, date_to=None):
+        if not work_days_val:
+            return None
+        # Use explicit date range if provided, otherwise full month
+        if date_from and date_to:
+            from datetime import timedelta
+            count = 0
+            current = date_from
+            while current <= date_to:
+                weekday = current.weekday()
+                if work_days_val == "mon_fri" and weekday < 5:
+                    count += 1
+                elif work_days_val == "mon_sat" and weekday < 6:
+                    count += 1
+                current += timedelta(days=1)
+            return count
+        if not month:
             return None
         _, days_in_month = calendar.monthrange(year, month)
         count = 0
@@ -253,7 +257,7 @@ def build_user_summary(logs_with_employees, year, month=None):
         work_days_val = employee.work_days.value if employee.work_days else None
         dept_name     = employee.department.name if employee.department else "Unassigned"
 
-        expected_days  = count_working_days(work_days_val, year, month) if month else None
+        expected_days  = count_working_days(work_days_val, year, month, date_from, date_to)
         shift_hrs      = SHIFT_HOURS.get(shift_val) if shift_val else None
         expected_hours = round(expected_days * shift_hrs, 2) if (expected_days and shift_hrs) else None
 
@@ -282,7 +286,7 @@ def build_user_summary(logs_with_employees, year, month=None):
     return sorted(rows, key=lambda x: (x["department"], x["name"]))
 
 
-# ── Sheet writer ───────────────────────────────────────────────────────────────
+# ── Sheet writer ──────────────────────────────────────────────────────────────
 def write_summary_sheet(ws, rows, title, subtitle):
     col_count = len(SUMMARY_COLS)
 
@@ -292,14 +296,11 @@ def write_summary_sheet(ws, rows, title, subtitle):
     for i, r in enumerate(rows):
         write_summary_row(ws, i + 4, r, alt=(i % 2 == 1))
 
-    # Totals row
     totals_row = len(rows) + 4
     write_totals_row(ws, totals_row, rows, col_count)
 
-    # Freeze panes below header
     ws.freeze_panes = ws.cell(row=4, column=1)
 
-    # Add color scale on Attendance % column (col 8)
     att_col  = get_column_letter(8)
     hrs_col  = get_column_letter(11)
     data_end = totals_row - 1
@@ -325,22 +326,29 @@ def write_summary_sheet(ws, rows, title, subtitle):
     ws.sheet_view.showGridLines = False
 
 
-# ── Workbook builders ──────────────────────────────────────────────────────────
-def build_workbook_monthly(db, year, month, department_id=None):
-    _, last_day = calendar.monthrange(year, month)
-    date_from   = date(year, month, 1)
-    date_to     = date(year, month, last_day)
-
-    query = db.query(AttendanceLog, Employee).join(
+# ── Query helper ──────────────────────────────────────────────────────────────
+def base_query(db, date_from, date_to, department_id=None, user_id=None):
+    """Single place where all filters are applied."""
+    q = db.query(AttendanceLog, Employee).join(
         Employee, AttendanceLog.user_id == Employee.user_id
     ).filter(
         AttendanceLog.date >= date_from,
         AttendanceLog.date <= date_to,
     )
     if department_id:
-        query = query.filter(Employee.department_id == department_id)
+        q = q.filter(Employee.department_id == department_id)
+    if user_id:
+        q = q.filter(AttendanceLog.user_id == user_id)
+    return q
 
-    logs = query.all()
+
+# ── Workbook builders ─────────────────────────────────────────────────────────
+def build_workbook_monthly(db, year, month, department_id=None, user_id=None):
+    _, last_day = calendar.monthrange(year, month)
+    date_from   = date(year, month, 1)
+    date_to     = date(year, month, last_day)
+
+    logs = base_query(db, date_from, date_to, department_id, user_id).all()
     if not logs:
         raise HTTPException(status_code=404, detail="No attendance data found")
 
@@ -357,39 +365,32 @@ def build_workbook_monthly(db, year, month, department_id=None):
         subtitle = f"Generated {date.today().strftime('%d %b %Y')}  ·  {len(rows)} employees",
     )
 
-    # Department breakdown sheets
-    dept_groups = defaultdict(list)
-    for r in rows:
-        dept_groups[r["department"]].append(r)
-
-    for dept_name, dept_rows in sorted(dept_groups.items()):
-        ws_dept = wb.create_sheet(title=dept_name[:31])
-        write_summary_sheet(
-            ws_dept, dept_rows,
-            title    = f"{dept_name} — {month_name}",
-            subtitle = f"{len(dept_rows)} employees",
-        )
+    # Skip per-department sheets when exporting a single employee
+    if not user_id:
+        dept_groups = defaultdict(list)
+        for r in rows:
+            dept_groups[r["department"]].append(r)
+        for dept_name, dept_rows in sorted(dept_groups.items()):
+            ws_dept = wb.create_sheet(title=dept_name[:31])
+            write_summary_sheet(
+                ws_dept, dept_rows,
+                title    = f"{dept_name} — {month_name}",
+                subtitle = f"{len(dept_rows)} employees",
+            )
 
     return wb
 
 
-def build_workbook_range(db, date_from, date_to, department_id=None):
-    query = db.query(AttendanceLog, Employee).join(
-        Employee, AttendanceLog.user_id == Employee.user_id
-    ).filter(
-        AttendanceLog.date >= date_from,
-        AttendanceLog.date <= date_to,
-    )
-    if department_id:
-        query = query.filter(Employee.department_id == department_id)
-
-    logs = query.all()
+def build_workbook_range(db, date_from, date_to, department_id=None, user_id=None):
+    logs = base_query(db, date_from, date_to, department_id, user_id).all()
     if not logs:
         raise HTTPException(status_code=404, detail="No attendance data found")
 
-    # For range export we can't compute expected days accurately without knowing
-    # the employee's work schedule relative to an arbitrary range, so we pass month=None
-    rows = build_user_summary(logs, year=date_from.year, month=None)
+    # Pass month only if the range is within a single month
+    if date_from.year == date_to.year and date_from.month == date_to.month:
+        rows = build_user_summary(logs, year=date_from.year, month=None, date_from=date_from, date_to=date_to)
+    else:
+        rows = build_user_summary(logs, year=date_from.year, month=None, date_from=date_from, date_to=date_to)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -401,22 +402,23 @@ def build_workbook_range(db, date_from, date_to, department_id=None):
         subtitle = f"Generated {date.today().strftime('%d %b %Y')}  ·  {len(rows)} employees",
     )
 
-    dept_groups = defaultdict(list)
-    for r in rows:
-        dept_groups[r["department"]].append(r)
-
-    for dept_name, dept_rows in sorted(dept_groups.items()):
-        ws_dept = wb.create_sheet(title=dept_name[:31])
-        write_summary_sheet(
-            ws_dept, dept_rows,
-            title    = f"{dept_name} — {date_from} to {date_to}",
-            subtitle = f"{len(dept_rows)} employees",
-        )
+    # Skip per-department sheets when exporting a single employee
+    if not user_id:
+        dept_groups = defaultdict(list)
+        for r in rows:
+            dept_groups[r["department"]].append(r)
+        for dept_name, dept_rows in sorted(dept_groups.items()):
+            ws_dept = wb.create_sheet(title=dept_name[:31])
+            write_summary_sheet(
+                ws_dept, dept_rows,
+                title    = f"{dept_name} — {date_from} to {date_to}",
+                subtitle = f"{len(dept_rows)} employees",
+            )
 
     return wb
 
 
-def build_workbook_year(db, year, department_id=None):
+def build_workbook_year(db, year, department_id=None, user_id=None):
     wb    = openpyxl.Workbook()
     first = True
 
@@ -425,16 +427,7 @@ def build_workbook_year(db, year, department_id=None):
         date_from   = date(year, month, 1)
         date_to     = date(year, month, last_day)
 
-        query = db.query(AttendanceLog, Employee).join(
-            Employee, AttendanceLog.user_id == Employee.user_id
-        ).filter(
-            AttendanceLog.date >= date_from,
-            AttendanceLog.date <= date_to,
-        )
-        if department_id:
-            query = query.filter(Employee.department_id == department_id)
-
-        logs = query.all()
+        logs = base_query(db, date_from, date_to, department_id, user_id).all()
         if not logs:
             continue
 
@@ -460,7 +453,7 @@ def build_workbook_year(db, year, department_id=None):
     return wb
 
 
-# ── Endpoint ───────────────────────────────────────────────────────────────────
+# ── Endpoint 
 @router.get("/attendance")
 def export_attendance(
     db            : Session        = Depends(get_db),
@@ -469,13 +462,14 @@ def export_attendance(
     month         : Optional[int]  = Query(None, ge=1, le=12),
     year          : Optional[int]  = Query(None, ge=2000),
     department_id : Optional[int]  = Query(None),
+    user_id       : Optional[int]  = Query(None),   # ← filters to a single employee
 ):
     if year and not month and not date_from:
-        wb       = build_workbook_year(db, year, department_id)
+        wb       = build_workbook_year(db, year, department_id, user_id)
         filename = f"attendance_{year}.xlsx"
 
     elif month and year:
-        wb       = build_workbook_monthly(db, year, month, department_id)
+        wb       = build_workbook_monthly(db, year, month, department_id, user_id)
         filename = f"attendance_{year}_{str(month).zfill(2)}.xlsx"
 
     else:
@@ -484,7 +478,7 @@ def export_attendance(
                 status_code=400,
                 detail="Provide either date_from+date_to, month+year, or year"
             )
-        wb       = build_workbook_range(db, date_from, date_to, department_id)
+        wb       = build_workbook_range(db, date_from, date_to, department_id, user_id)
         filename = f"attendance_{date_from}_to_{date_to}.xlsx"
 
     output = io.BytesIO()

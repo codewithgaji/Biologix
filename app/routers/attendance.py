@@ -93,9 +93,7 @@ def get_attendance_summary(
             hours_worked    = hours_worked,
             status          = status,
         ))
-    for log, employee in logs:
-        print(repr(log.timestamp))  # Is it a datetime? Does it have tzinfo?
-
+    
     return sorted(summary, key=lambda x: (x.date, x.employee_name))
 
 

@@ -67,24 +67,29 @@ def parse_user_dat(file_bytes: bytes, db: Session) -> dict:
     }
 
 
-def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
 
+def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
     lines = file_bytes.decode("utf-8", errors="ignore").splitlines()
+
+    # ✅ Load ALL employees once — one query instead of one per line
+    all_employees = db.query(Employee).all()
+    employee_map = {emp.badge_number: emp for emp in all_employees}
 
     inserted = 0
     skipped  = 0
     errors   = 0
 
+    records_to_insert = []
+
     for line in lines:
         try:
             parts = line.strip().split()
-
             if len(parts) < 4:
                 skipped += 1
                 continue
 
-            badge_number = str(parts[0])  # parts[0] is badge number, not user_id
-            timestamp    = datetime.strptime(parts[1] + " " + parts[2], "%Y-%m-%d %H:%M:%S")
+            badge_number    = str(parts[0])
+            timestamp       = datetime.strptime(parts[1] + " " + parts[2], "%Y-%m-%d %H:%M:%S")
             attendance_date = timestamp.date()
 
             if force_status:
@@ -93,45 +98,32 @@ def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
                 raw_status   = parts[4] if len(parts) > 4 else "1"
                 punch_status = PUNCH_STATUS_MAP.get(raw_status, PunchStatusEnum.check_in)
 
-            # Look up employee by badge number — this is the key fix
-            employee = db.query(Employee).filter(Employee.badge_number == badge_number).first()
+            # ✅ Dict lookup instead of DB query
+            employee = employee_map.get(badge_number)
             if not employee:
                 skipped += 1
                 continue
 
-            exists = db.query(AttendanceLog).filter(
-                AttendanceLog.user_id  == employee.user_id,
-                AttendanceLog.timestamp == timestamp
-            ).first()
-
-            if exists:
-                skipped += 1
-                continue
-
-            log = AttendanceLog(
-                user_id      = employee.user_id,  # store the real user_id from the employee record
+            records_to_insert.append(AttendanceLog(
+                user_id      = employee.user_id,
                 timestamp    = timestamp,
                 date         = attendance_date,
                 punch_status = punch_status,
                 punch_type   = PunchTypeEnum.fingerprint,
-            )
-
-            db.add(log)
+            ))
             inserted += 1
 
         except Exception:
             errors += 1
             continue
 
+    # ✅ Bulk insert instead of one-by-one
+    if records_to_insert:
+        db.bulk_save_objects(records_to_insert)
+
     db.commit()
 
-    return {
-        "inserted": inserted,
-        "skipped" : skipped,
-        "errors"  : errors,
-    }
-
-
+    return {"inserted": inserted, "skipped": skipped, "errors": errors}
 
 
 
