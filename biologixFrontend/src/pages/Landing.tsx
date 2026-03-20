@@ -219,6 +219,7 @@ const features = [
 const founders = [
   {
     name: "Oladimeji Opeyemi",
+    imageSrc: "/founders/oladimeji.jpg",
     role: "Co-Founder & Innovator",
     bio: "Replace this with your own story. How did you come up with BioLogix? What problem were you solving? What did you build and why does it matter? This is your space to tell people who you are and what drove you to build something this meaningful.",
   },
