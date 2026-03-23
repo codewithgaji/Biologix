@@ -8,6 +8,7 @@ import { Download, Loader2 } from "lucide-react";
 
 type ExportType = "month" | "range" | "year";
 
+// This is the export function
 export default function Export() {
   const [departments, setDepartments] = useState<any[]>([]);
   const [deptId, setDeptId] = useState("");
@@ -39,6 +40,7 @@ export default function Export() {
       }
 
       const blob = await exportAttendance(params);
+      
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
