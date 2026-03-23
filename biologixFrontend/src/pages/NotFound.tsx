@@ -12,7 +12,7 @@ const SHARD_GLOW_CLIP = `polygon(6% 2%,96% 0%,100% 8%,99% 90%,94% 100%,4% 99%,0%
 // ─── founders data 
 const founders = [
   { name: "Gaji Yaqub", role: "Co-Founder", imageSrc: "/founders/Gaji.png"},
-  { name: "Founder Two", role: "Co-Founder", imageSrc:"/founders/oladimeji.jpg" },
+  { name: "Oladimeji Opeyemi", role: "Co-Founder", imageSrc:"/founders/oladimeji.jpg" },
 ];
 
 // ─── floating fingerprint bg 
