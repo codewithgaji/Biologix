@@ -78,6 +78,49 @@ function HoursBar({ actual, expected }: { actual: number; expected: number | nul
   );
 }
 
+function PositionInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState(value);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="text-xs text-left w-full min-w-[120px] px-2 py-1 rounded hover:bg-secondary/80 transition-colors"
+        style={{ color: value ? "inherit" : "rgba(var(--muted-foreground))" }}
+      >
+        {value || <span className="text-muted-foreground italic">Add position...</span>}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 min-w-[150px]">
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { onSave(draft); setEditing(false); }
+          if (e.key === "Escape") { setDraft(value); setEditing(false); }
+        }}
+        className="h-7 text-xs px-2"
+        placeholder="e.g. IT Manager"
+      />
+      <Button
+        size="sm"
+        className="h-7 text-xs px-2"
+        onClick={() => { onSave(draft); setEditing(false); }}
+      >
+        Save
+      </Button>
+    </div>
+  );
+}
+
+
 export default function Employees() {
   const now = new Date();
   const [month, setMonth]               = useState(now.getMonth() + 1);
@@ -265,6 +308,7 @@ export default function Employees() {
                   <th className="px-3 py-3 text-left">Employee ID #</th>
                   <th className="px-3 py-3 text-left">Machine ID</th>
                   <th className="px-3 py-3 text-left">Full Name</th>
+                  <th className="px-3 py-3 text-left">Position</th>
                   <th className="px-3 py-3 text-left">Department</th>
                   <th className="px-3 py-3 text-left">Shift</th>
                   <th className="px-3 py-3 text-left">Work Days</th>
@@ -288,6 +332,12 @@ export default function Employees() {
                       <td className="px-3 py-3 font-mono text-xs">{emp.badge_number || "—"}</td>
                       <td className="px-3 py-3 font-mono text-xs">{emp.user_id}</td>
                       <td className="px-3 py-3 font-medium">{emp.name}</td>
+                      <td className="px-3 py-3">
+                        <PositionInput
+                            value={emp.position || ""}
+                            onSave={(val) => handleFieldUpdate(id, "position", val)}
+                        />
+                      </td>
 
                       {/* Department */}
                       <td className="px-3 py-3">
@@ -420,6 +470,13 @@ export default function Employees() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Role</p>
                   <p className="text-xs text-foreground">{emp.role || "—"}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Position</p>
+                  <PositionInput
+                    value={emp.position || ""}
+                    onSave={(val) => handleFieldUpdate(id, "position", val)}
+                  />
                 </div>
               </div>
 

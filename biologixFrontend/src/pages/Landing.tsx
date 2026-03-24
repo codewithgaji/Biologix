@@ -221,13 +221,13 @@ const founders = [
     name: "Oladimeji Opeyemi",
     imageSrc: "/founders/oladimeji.jpg",
     role: "Co-Founder & Innovator",
-    bio: "Replace this with your own story. How did you come up with BioLogix? What problem were you solving? What did you build and why does it matter? This is your space to tell people who you are and what drove you to build something this meaningful.",
+    bio: "As the Co-Founder and Innovator of BioLogix, I drove the vision and strategic direction behind the system, focusing on transforming HR operations through digital innovation. By collaborating with Gaji and the IT Department, I helped deliver a solution that reduces manual workload, improves efficiency, and supports better organizational decision-making.",
   },
   {
     name: "Gaji Yaqub",
     role: "Co-Founder & Lead Developer",
     imageSrc: "/founders/Gaji.png",
-    bio: "As a Software Engineer, I developed Biologix with the Right Resources gotten from My Senior(Mr Opeyemi) and Media Team. I Built the Entire infrastructure with FastAPI and ReactJs. This system is Built to make reduce the tedious work done by the HR team saving them Time and Resources.",
+    bio: "As a Software Engineer, I developed Biologix with the Right Resources gotten from My Senior(Mr Opeyemi) and IT Department. I Built the Entire infrastructure with FastAPI and ReactJs. This system is Built to make reduce the tedious work done by the HR team saving them Time and Resources.",
   },
 ];
 

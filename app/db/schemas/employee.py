@@ -6,6 +6,7 @@ from db.models.employee import RoleEnum, ShiftEnum, WorkDaysEnum
 class EmployeeBase(BaseModel): # This is used to create the employee base with the user data
     user_id      : int
     name         : str
+    position: Optional[str] = None
     badge_number : Optional[str] = None
     role         : Optional[RoleEnum] = RoleEnum.user
     shift        : Optional[ShiftEnum] = None
@@ -23,6 +24,8 @@ class EmployeeUpdate(BaseModel):
     role         : Optional[RoleEnum] = None
     shift        : Optional[ShiftEnum] = None
     work_days    : Optional[WorkDaysEnum] = None
+    position: Optional[str] = None
+
 
 
 class EmployeeResponse(EmployeeBase):
