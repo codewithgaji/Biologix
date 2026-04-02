@@ -19,6 +19,7 @@ def get_all_employees(db: Session = Depends(get_db)):
     return db.query(Employee).all() # This is used to get all employees
 
 
+# This is used to get users per ID.
 @router.get("/{user_id}", response_model=EmployeeResponse)
 def get_employee(user_id: int, db: Session = Depends(get_db)):
     employee = db.query(Employee).filter(Employee.user_id == user_id).first()
@@ -30,12 +31,12 @@ def get_employee(user_id: int, db: Session = Depends(get_db)):
 @router.post("/", response_model=EmployeeResponse)
 def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db)):
     existing = db.query(Employee).filter(Employee.user_id == payload.user_id).first()
-    if existing:
+    if existing: # If the user exists.
         raise HTTPException(status_code=400, detail=f"Employee with ID {payload.user_id} already exists")
     employee = Employee(**payload.model_dump())
     db.add(employee)
     db.commit()
-    db.refresh(employee)
+    db.refresh(employee) # To display the newly created employee with the ID and other details.
     return employee
 
 
@@ -51,6 +52,7 @@ def update_employee(user_id: int, payload: EmployeeUpdate, db: Session = Depends
     return employee
 
 
+# This is used to update the department of multiple employees at once. This is useful when we want to move multiple employees to a new department. The payload should contain a list of user_ids and the new department_id. For example: {"user_ids": [1, 2, 3], "department_id": 2}
 @router.patch("/bulk/department")
 def bulk_update_department(
     payload: dict,
@@ -59,7 +61,7 @@ def bulk_update_department(
     user_ids      = payload.get("user_ids", [])
     department_id = payload.get("department_id")
 
-    if not user_ids or department_id is None:
+    if not user_ids or department_id is None: # The user id or department id is a necessity.
         raise HTTPException(status_code=400, detail="user_ids and department_id are required")
 
     updated = 0
