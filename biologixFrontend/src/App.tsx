@@ -14,6 +14,7 @@ import Attendance from "./pages/dashboard/Attendance";
 import ImportData from "./pages/dashboard/ImportData";
 import Export from "./pages/dashboard/Export";
 import Holidays from "./pages/dashboard/Holidays";  // ← add this
+import Leaves from "./pages/dashboard/Leaves";
 
 const queryClient = new QueryClient();
 
@@ -32,7 +33,8 @@ const App = () => (
             <Route path="attendance" element={<Attendance />} />
             <Route path="import" element={<ImportData />} />
             <Route path="export" element={<Export />} />
-            <Route path="holidays" element={<Holidays />} />  {/* ← add this */}
+            <Route path="holidays" element={<Holidays />} /> 
+            <Route path="leaves" element={<Leaves />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

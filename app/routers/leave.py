@@ -48,6 +48,7 @@ def get_leaves(
 
 # This is the search query endpoint.
 # To avoid routing conflict i'm defining the before the get leave by ID endpoint.
+@router.get("/search/employee", response_model=List[dict])
 def search_employee_by_badge(
     badge: str = Query(..., description="Badge number to search for"),
     db: Session = Depends(get_db)
