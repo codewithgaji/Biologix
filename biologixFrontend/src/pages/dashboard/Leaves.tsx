@@ -10,7 +10,10 @@ import {
 
 
 // api calls 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://biologixbackend.onrender.com'
+
+
+//"http://localhost:8000";
 
 function getToken() { return localStorage.getItem("biologix_token"); }
 
