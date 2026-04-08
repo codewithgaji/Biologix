@@ -59,7 +59,8 @@ function safeFilename(name: string, badge: string | number) {
 
 // ─── leave fetch 
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://biologixbackend.onrender.com'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://biologixbackend.onrender.com";
+
 
 
 //"http://localhost:8000";
