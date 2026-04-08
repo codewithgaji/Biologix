@@ -6,10 +6,10 @@ import { toast } from "sonner";
 import {
   Search, Filter, X, ChevronLeft, ChevronRight,
   Download, Calendar, Clock, CheckCircle2, XCircle,
-  TrendingUp, User
+  TrendingUp, User, CalendarDays
 } from "lucide-react";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── helpers 
 
 function today() {
   return new Date().toISOString().split("T")[0];
@@ -57,32 +57,60 @@ function safeFilename(name: string, badge: string | number) {
   return `${name.replace(/\s+/g, "_")}_#${badge}`;
 }
 
-// ─── types ───────────────────────────────────────────────────────────────────
+// ─── leave fetch 
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+
+
+function getToken() { return localStorage.getItem("biologix_token"); }
+
+interface LeaveDate {
+  date        : string;
+  leave_type  : "paid" | "unpaid";
+  description : string | null;
+}
+
+async function fetchLeaveDates(
+  userId  : string | number,
+  dateFrom: string,
+  dateTo  : string
+): Promise<LeaveDate[]> {
+  const token = getToken();
+  const res = await fetch(
+    `${API_BASE}/leaves/dates/${userId}?date_from=${dateFrom}&date_to=${dateTo}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// ─── types ────────────────────────────────────────────────────────────────────
 
 interface AttendanceRow {
-  user_id: string | number;
-  badge_number: string | number;
-  employee_name: string;
+  user_id        : string | number;
+  badge_number   : string | number;
+  employee_name  : string;
   department_name: string;
-  date: string;
-  clock_in: string | null;
-  clock_out: string | null;
-  hours_worked: number | null;
-  status: string;
+  date           : string;
+  clock_in       : string | null;
+  clock_out      : string | null;
+  hours_worked   : number | null;
+  status         : string;
 }
 
 interface EmployeeGroup {
-  user_id: string | number;
-  badge_number: string | number;
-  employee_name: string;
+  user_id        : string | number;
+  badge_number   : string | number;
+  employee_name  : string;
   department_name: string;
-  records: AttendanceRow[];
-  days_present: number;
-  total_hours: number;
-  last_seen: string;
+  records        : AttendanceRow[];
+  days_present   : number;
+  total_hours    : number;
+  last_seen      : string;
 }
 
-// ─── employee card ────────────────────────────────────────────────────────────
+// ─── employee card ─────────────────────────────────────────────────────────────
 
 function EmployeeCard({ emp, onClick }: { emp: EmployeeGroup; onClick: () => void }) {
   const attendanceRate = emp.records.length > 0
@@ -143,12 +171,54 @@ function EmployeeModal({
 }: {
   emp: EmployeeGroup; onClose: () => void; dateFrom: string; dateTo: string;
 }) {
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting]       = useState(false);
+  const [leaveDates, setLeaveDates]     = useState<LeaveDate[]>([]);
+  const [leavesLoading, setLeavesLoading] = useState(true);
 
-  const sorted      = [...emp.records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const daysPresent = emp.records.filter((r) => r.status === "present").length;
-  const daysAbsent  = emp.records.filter((r) => r.status === "absent").length;
-  const avgHours    = daysPresent > 0 ? emp.total_hours / daysPresent : 0;
+  // Fetch leave dates for this employee when modal opens
+  useEffect(() => {
+    setLeavesLoading(true);
+    fetchLeaveDates(emp.user_id, dateFrom, dateTo)
+      .then(setLeaveDates)
+      .catch(() => setLeaveDates([]))
+      .finally(() => setLeavesLoading(false));
+  }, [emp.user_id, dateFrom, dateTo]);
+
+  // Build a map of date → leave info for quick lookup
+  const leaveMap = useMemo(() => {
+    const map = new Map<string, LeaveDate>();
+    leaveDates.forEach((l) => map.set(l.date, l));
+    return map;
+  }, [leaveDates]);
+
+  // Merge attendance records with leave dates
+  // Leave dates that have no attendance record are inserted as leave-only rows
+  const allDates = useMemo(() => {
+    const dateSet = new Map<string, { record?: AttendanceRow; leave?: LeaveDate }>();
+
+    // Add all attendance records
+    emp.records.forEach((r) => {
+      dateSet.set(r.date, { record: r, leave: leaveMap.get(r.date) });
+    });
+
+    // Add leave dates that have no attendance record
+    leaveDates.forEach((l) => {
+      if (!dateSet.has(l.date)) {
+        dateSet.set(l.date, { leave: l });
+      }
+    });
+
+    // Sort descending by date
+    return Array.from(dateSet.entries())
+      .sort(([a], [b]) => new Date(b).getTime() - new Date(a).getTime())
+      .map(([, v]) => v);
+  }, [emp.records, leaveMap, leaveDates]);
+
+  const daysPresent   = emp.records.filter((r) => r.status === "present").length;
+  const daysAbsent    = emp.records.filter((r) => r.status === "absent").length;
+  const avgHours      = daysPresent > 0 ? emp.total_hours / daysPresent : 0;
+  const paidLeaveCount   = leaveDates.filter((l) => l.leave_type === "paid").length;
+  const unpaidLeaveCount = leaveDates.filter((l) => l.leave_type === "unpaid").length;
 
   const handleExport = async () => {
     setExporting(true);
@@ -217,32 +287,108 @@ function EmployeeModal({
           </div>
         </div>
 
-        {/* Records */}
+        {/* Leave summary bar — only show if there are leaves */}
+        {!leavesLoading && leaveDates.length > 0 && (
+          <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border shrink-0 bg-secondary/20 flex-wrap">
+            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground">Leaves in period:</span>
+            {paidLeaveCount > 0 && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-500/15 text-green-500">
+                {paidLeaveCount} paid day{paidLeaveCount > 1 ? "s" : ""}
+              </span>
+            )}
+            {unpaidLeaveCount > 0 && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-500">
+                {unpaidLeaveCount} unpaid day{unpaidLeaveCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Records list */}
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
-          {sorted.map((row, i) => (
-            <div
-              key={i}
-              className={`rounded-xl p-3 flex items-center justify-between gap-3 ${
-                row.status === "present" ? "bg-secondary/40" : "bg-destructive/5 border border-destructive/15"
-              }`}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Calendar className={`h-3.5 w-3.5 shrink-0 ${row.status === "present" ? "text-primary" : "text-destructive/50"}`} />
-                <span className="text-xs font-medium text-foreground truncate">{formatShortDate(row.date)}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs shrink-0">
-                <span className="text-green-600 dark:text-green-400 font-mono">{formatTime(row.clock_in)}</span>
-                <span className="text-muted-foreground">→</span>
-                <span className="text-orange-500 font-mono">{formatTime(row.clock_out)}</span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {row.hours_worked != null && (
-                  <span className="text-xs text-muted-foreground">{row.hours_worked}h</span>
-                )}
-                <span className={`w-2 h-2 rounded-full ${row.status === "present" ? "bg-green-500" : "bg-red-500"}`} />
-              </div>
-            </div>
-          ))}
+          {leavesLoading ? (
+            <div className="text-center text-muted-foreground text-sm py-4">Loading records...</div>
+          ) : allDates.length === 0 ? (
+            <div className="text-center text-muted-foreground text-sm py-4">No records found.</div>
+          ) : (
+            allDates.map(({ record, leave }, i) => {
+              const isPaidLeave   = leave?.leave_type === "paid";
+              const isUnpaidLeave = leave?.leave_type === "unpaid";
+              const isLeaveOnly   = !record && !!leave; // leave day with no clock in/out record
+              const dateStr       = record?.date || leave?.date || "";
+              const isPresent     = record?.status === "present";
+
+              // Determine row styling
+              let rowClass = "bg-secondary/40"; // present
+              if (isPaidLeave && !isPresent) rowClass = "bg-green-500/8 border border-green-500/20";
+              else if (isUnpaidLeave) rowClass = "bg-orange-500/8 border border-orange-500/20";
+              else if (!isPresent && !leave) rowClass = "bg-destructive/5 border border-destructive/15";
+
+              return (
+                <div
+                  key={i}
+                  className={`rounded-xl p-3 flex items-center justify-between gap-3 ${rowClass}`}
+                >
+                  {/* Date */}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Calendar className={`h-3.5 w-3.5 shrink-0 ${
+                      isPaidLeave ? "text-green-500" :
+                      isUnpaidLeave ? "text-orange-500" :
+                      isPresent ? "text-primary" : "text-destructive/50"
+                    }`} />
+                    <span className="text-xs font-medium text-foreground truncate">
+                      {formatShortDate(dateStr)}
+                    </span>
+                  </div>
+
+                  {/* Middle — clock times OR leave tag */}
+                  <div className="flex items-center gap-2 text-xs shrink-0 flex-1 justify-center">
+                    {leave ? (
+                      // Show leave tag instead of clock times
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          isPaidLeave
+                            ? "bg-green-500/20 text-green-500"
+                            : "bg-orange-500/20 text-orange-500"
+                        }`}>
+                          {isPaidLeave ? "Paid Leave" : "Unpaid Leave"}
+                        </span>
+                        {leave.description && (
+                          <span className="text-[10px] text-muted-foreground truncate max-w-[150px]">
+                            {leave.description}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      // Normal clock in/out
+                      <>
+                        <span className="text-green-600 dark:text-green-400 font-mono">
+                          {formatTime(record?.clock_in ?? null)}
+                        </span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="text-orange-500 font-mono">
+                          {formatTime(record?.clock_out ?? null)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Right — hours + status dot */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {record?.hours_worked != null && (
+                      <span className="text-xs text-muted-foreground">{record.hours_worked}h</span>
+                    )}
+                    <span className={`w-2 h-2 rounded-full ${
+                      isPaidLeave ? "bg-green-500" :
+                      isUnpaidLeave ? "bg-orange-500" :
+                      isPresent ? "bg-green-500" : "bg-red-500"
+                    }`} />
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Export footer */}
@@ -262,17 +408,17 @@ function EmployeeModal({
 const PAGE_SIZE = 24;
 
 export default function Attendance() {
-  const [data, setData]                   = useState<AttendanceRow[]>([]);
-  const [departments, setDepartments]     = useState<any[]>([]);
-  const [search, setSearch]               = useState("");
-  const [deptFilter, setDeptFilter]       = useState("");
-  const [dateFrom, setDateFrom]           = useState(startOf(3));
-  const [dateTo, setDateTo]               = useState(today());
-  const [activePreset, setActivePreset]   = useState("3 Months");
-  const [page, setPage]                   = useState(0);
-  const [loading, setLoading]             = useState(true);
-  const [filtersOpen, setFiltersOpen]     = useState(false);
-  const [selected, setSelected]           = useState<EmployeeGroup | null>(null);
+  const [data, setData]               = useState<AttendanceRow[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [search, setSearch]           = useState("");
+  const [deptFilter, setDeptFilter]   = useState("");
+  const [dateFrom, setDateFrom]       = useState(startOf(3));
+  const [dateTo, setDateTo]           = useState(today());
+  const [activePreset, setActivePreset] = useState("3 Months");
+  const [page, setPage]               = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selected, setSelected]       = useState<EmployeeGroup | null>(null);
 
   const load = (from = dateFrom, to = dateTo, dept = deptFilter) => {
     setLoading(true);
@@ -313,14 +459,14 @@ export default function Attendance() {
       const key = String(row.user_id);
       if (!map.has(key)) {
         map.set(key, {
-          user_id: row.user_id,
-          badge_number: row.badge_number,
-          employee_name: row.employee_name,
+          user_id        : row.user_id,
+          badge_number   : row.badge_number,
+          employee_name  : row.employee_name,
           department_name: row.department_name,
-          records: [],
-          days_present: 0,
-          total_hours: 0,
-          last_seen: row.date,
+          records        : [],
+          days_present   : 0,
+          total_hours    : 0,
+          last_seen      : row.date,
         });
       }
       const grp = map.get(key)!;

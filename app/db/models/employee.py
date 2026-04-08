@@ -30,6 +30,7 @@ class Employee(Base):
     badge_number  = Column(String, nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     department    = relationship("Department", foreign_keys=[department_id])
+    leaves =  relationship("Leave", back_populates="employee") # This is used to get the list of leaves that the employee has taken.
     role          = Column(Enum(RoleEnum), default=RoleEnum.user)
     shift         = Column(Enum(ShiftEnum), nullable=True)
     work_days     = Column(Enum(WorkDaysEnum), nullable=True)

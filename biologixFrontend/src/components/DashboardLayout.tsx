@@ -13,6 +13,7 @@ const navItems = [
   { label: "Employees", path: "/dashboard/employees", icon: Users },
   { label: "Departments", path: "/dashboard/departments", icon: Building2 },
   { label: "Attendance", path: "/dashboard/attendance", icon: CalendarCheck },
+  { label: "Leaves", path: "/dashboard/leaves", icon: CalendarDays },
   { label: "Holidays",    path: "/dashboard/holidays",    icon: CalendarDays    }, 
   { label: "Import Data", path: "/dashboard/import", icon: Upload },
   { label: "Export", path: "/dashboard/export", icon: Download },

@@ -4,6 +4,7 @@ from db.models.attendance import PunchTypeEnum, PunchStatusEnum
 from datetime import datetime, date
 
 
+# This is the base model
 class AttendanceBase(BaseModel):
   user_id: int
   timestamp: datetime
@@ -18,6 +19,7 @@ class AttendanceCreate(AttendanceBase):
     from_attributes = True
 
 
+# This shows the attendance summary for a user on a given day. It is used to show the attendance summary for a user on the frontend. It is also used to show the attendance summary for a user on the backend when exporting the attendance data to excel.
 class AttendanceSummary(BaseModel):
   user_id: int
   employee_name: str
