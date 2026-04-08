@@ -395,11 +395,9 @@ def build_user_summary(logs_with_employees, year, month=None, date_from=None, da
     return sorted(rows, key=lambda x: (x["department"], x["name"]))
 
 
+
+
 def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
-    """
-    Returns flat leave records for the period, optionally filtered by user or dept.
-    Each row has: badge_number, name, leave_type, date_from, date_to, days, description
-    """
     q = db.query(Leave, Employee).join(
         Employee, Leave.user_id == Employee.user_id, isouter=True
     ).filter(
@@ -407,11 +405,9 @@ def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
         Leave.date_from <= date_to,
     )
 
-    # For single user export — include their personal leaves + company-wide
     if user_id:
         q = q.filter((Leave.user_id == user_id) | (Leave.applies_to_all == True))
     elif dept_id:
-        # Department export — company-wide leaves + leaves for employees in this dept
         q = q.filter(
             (Leave.applies_to_all == True) |
             (Employee.department_id == dept_id)
@@ -419,29 +415,49 @@ def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
 
     leaves = q.all()
 
-    # For applies_to_all leaves, fetch all employees to expand them
-    all_employees = db.query(Employee).all() if any(l.applies_to_all for l, _ in leaves) else []
-    emp_by_id = {e.user_id: e for e in all_employees}
+    # Only fetch all employees if we're NOT doing a single-user export
+    all_employees = []
+    if not user_id and any(l.applies_to_all for l, _ in leaves):
+        all_employees = db.query(Employee).all()
+        if dept_id:
+            all_employees = [e for e in all_employees if e.department_id == dept_id]
+
+    # For single user export, we need their employee record
+    single_emp = None
+    if user_id:
+        single_emp = db.query(Employee).filter(Employee.user_id == user_id).first()
 
     result = []
     for leave, emp in leaves:
-        # Calculate days in range (clamp to export date range)
         effective_from = max(leave.date_from, date_from)
         effective_to   = min(leave.date_to,   date_to)
         days = (effective_to - effective_from).days + 1
 
         if leave.applies_to_all:
-            # Expand to all employees
-            for e in all_employees:
-                result.append({
-                    "badge_number": e.badge_number or "—",
-                    "name"        : e.name,
-                    "leave_type"  : leave.leave_type.value,
-                    "date_from"   : effective_from,
-                    "date_to"     : effective_to,
-                    "days"        : days,
-                    "description" : leave.description or "",
-                })
+            if user_id:
+                # Single employee export — only show this one person
+                if single_emp:
+                    result.append({
+                        "badge_number": single_emp.badge_number or "—",
+                        "name"        : single_emp.name,
+                        "leave_type"  : leave.leave_type.value,
+                        "date_from"   : effective_from,
+                        "date_to"     : effective_to,
+                        "days"        : days,
+                        "description" : leave.description or "",
+                    })
+            else:
+                # Multi-employee export — expand to all (or dept) employees
+                for e in all_employees:
+                    result.append({
+                        "badge_number": e.badge_number or "—",
+                        "name"        : e.name,
+                        "leave_type"  : leave.leave_type.value,
+                        "date_from"   : effective_from,
+                        "date_to"     : effective_to,
+                        "days"        : days,
+                        "description" : leave.description or "",
+                    })
         elif emp:
             result.append({
                 "badge_number": emp.badge_number or "—",
@@ -454,6 +470,10 @@ def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
             })
 
     return sorted(result, key=lambda x: (x["leave_type"], x["name"]))
+
+
+
+
 
 
 # ── Sheet writer 
@@ -544,7 +564,8 @@ def build_workbook_monthly(db, year, month, dept_id=None, user_id=None):
     write_summary_sheet(ws, rows,
         title      = f"Attendance Summary — {month_name}",
         subtitle   = f"Generated {date.today()} · {len(rows)} employees",
-        leave_rows = leave_rows,
+        leave_rows = leave_rows if not user_id else None,  
+        single_employee_leaves = leave_rows if user_id else None,  
     )
 
     # Department breakdown sheets (skip for single user export)

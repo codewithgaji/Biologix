@@ -16,44 +16,37 @@ router = APIRouter(
 )
 
 
-
-
-def enrich(leave: Leave) -> LeaveOut: # This is the response type.
-  out = LeaveOut.model_validate(leave) # This is the base response with the leave details.
+def enrich(leave: Leave) -> LeaveOut:
+  out = LeaveOut.model_validate(leave)
   if leave.employee:
-    out.employee_name = leave.employee.name # This is the employee name from the Employee model.
-    out.badge_number = leave.employee.badge_number # This is the badge number from the Employee model.
+    out.employee_name = leave.employee.name
+    out.badge_number = leave.employee.badge_number
   return out
 
 
 @router.get("/", response_model=List[LeaveOut])
 def get_leaves(
   user_id: Optional[int] = Query(None),
-  date_from : Optional[date] = Query(None),
-  date_to : Optional[date] = Query(None),
-  db :  Session = Depends(get_db),
+  date_from: Optional[date] = Query(None),
+  date_to: Optional[date] = Query(None),
+  db: Session = Depends(get_db),
 ):
   q = db.query(Leave)
   if user_id is not None:
-    q = q.filter((Leave.user_id == user_id) | (Leave.applies_to_all == True)) # This is used to get leaves that apply to all employees or leaves that apply to a specific employee.
-    if date_from:
-       q = q.filter(Leave.date_to >= date_from) # This is used to filter leaves that end after the specified start date.
-    if date_to:
-      q = q.filter(Leave.date_from <= date_to) # This is used to filter leaves that start before the specified end date.
+    q = q.filter((Leave.user_id == user_id) | (Leave.applies_to_all == True))
+  if date_from:
+    q = q.filter(Leave.date_to >= date_from)
+  if date_to:
+    q = q.filter(Leave.date_from <= date_to)
 
-    return [enrich(leave) for leave in q.order_by(Leave.date_from.desc()).all()] # This is used to get all leaves for a specific user, ordered by the start date in descending order. The enrich function is used to add the employee name and badge number to the response.
-
-
+  return [enrich(leave) for leave in q.order_by(Leave.date_from.desc()).all()]
 
 
-# This is the search query endpoint.
-# To avoid routing conflict i'm defining the before the get leave by ID endpoint.
 @router.get("/search/employee", response_model=List[dict])
 def search_employee_by_badge(
     badge: str = Query(..., description="Badge number to search for"),
     db: Session = Depends(get_db)
 ):
-  # The employee attr
   employees = db.query(Employee).filter(Employee.badge_number.ilike(f"%{badge}%")).limit(10).all()
 
   return [
@@ -66,12 +59,10 @@ def search_employee_by_badge(
     for emp in employees
   ]
 
-  
-
 
 @router.get("/dates/{user_id}")
 def get_leave_dates_for_user(
-  user_id: int, 
+  user_id: int,
   db: Session = Depends(get_db),
   date_from: Optional[date] = Query(None),
   date_to: Optional[date] = Query(None)
@@ -83,38 +74,37 @@ def get_leave_dates_for_user(
     q = q.filter(Leave.date_from >= date_from)
   if date_to:
     q = q.filter(Leave.date_to <= date_to)
+
   leaves = q.all()
-  result = [] # This is used to get the leave lists for the user.
+  result = []
   for leave in leaves:
     current = leave.date_from
     while current <= leave.date_to:
       result.append({
         "date": str(current),
-        "leave_type" : leave.leave_type.value,
-        "description" : leave.description
+        "leave_type": leave.leave_type.value,
+        "description": leave.description
       })
       current += timedelta(days=1)
   return result
 
 
-# Get a leave by ID.
 @router.get("/{leave_id}", response_model=LeaveOut)
 def get_leave(leave_id: int, db: Session = Depends(get_db)):
-  leave = db.query(Leave).filter(Leave.id == leave_id).firts()
+  leave = db.query(Leave).filter(Leave.id == leave_id).first()  # fixed: .firts() → .first()
 
   if not leave:
-    raise HTTPException(status_code =404, detail="Leave not found")
+    raise HTTPException(status_code=404, detail="Leave not found")
   return enrich(leave)
 
 
-# The Post Leave endpoint.
 @router.post("/", response_model=LeaveOut, status_code=201)
 def create_leave(payload: LeaveCreate, db: Session = Depends(get_db)):
-  if not payload.applies_to_all and payload.user_id is None:
+  if not payload.applies_to_all and payload.user_id is not None:  # fixed: `is None` → `is not None`
     employee = db.query(Employee).filter(Employee.user_id == payload.user_id).first()
     if not employee:
       raise HTTPException(status_code=404, detail="Employee not found")
-    
+
   leave = Leave(**payload.model_dump())
   db.add(leave)
   db.commit()
@@ -122,32 +112,25 @@ def create_leave(payload: LeaveCreate, db: Session = Depends(get_db)):
   return enrich(leave)
 
 
-
-# The Update Leave endpoint.
 @router.patch("/{leave_id}", response_model=LeaveOut)
 def update_leave(leave_id: int, payload: LeaveUpdate, db: Session = Depends(get_db)):
   leave = db.query(Leave).filter(Leave.id == leave_id).first()
   if not leave:
     raise HTTPException(status_code=404, detail="Leave not found")
-  
+
   for field, value in payload.model_dump(exclude_unset=True).items():
     setattr(leave, field, value)
-  
+
   db.commit()
   db.refresh(leave)
   return enrich(leave)
 
 
-
-
-# The Delete Leave endpoint.
 @router.delete("/{leave_id}", status_code=204)
 def delete_leave(leave_id: int, db: Session = Depends(get_db)):
   leave = db.query(Leave).filter(Leave.id == leave_id).first()
   if not leave:
     raise HTTPException(status_code=404, detail="Leave not found")
-  
+
   db.delete(leave)
   db.commit()
-
-

@@ -9,7 +9,7 @@ import {
   TrendingUp, User, CalendarDays
 } from "lucide-react";
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── helpers 
 
 function today() {
   return new Date().toISOString().split("T")[0];
@@ -57,9 +57,11 @@ function safeFilename(name: string, badge: string | number) {
   return `${name.replace(/\s+/g, "_")}_#${badge}`;
 }
 
-// ─── leave fetch ──────────────────────────────────────────────────────────────
+// ─── leave fetch 
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+
 
 function getToken() { return localStorage.getItem("biologix_token"); }
 
