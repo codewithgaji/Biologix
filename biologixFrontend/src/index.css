@@ -5,7 +5,58 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @layer base {
+  /* ── Light mode (default) ── */
   :root {
+    --background: 210 40% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 172 66% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 30% 92%;
+    --secondary-foreground: 222 30% 20%;
+
+    --muted: 210 30% 94%;
+    --muted-foreground: 215 20% 45%;
+
+    --accent: 172 66% 35%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 30% 85%;
+    --input: 210 30% 85%;
+    --ring: 172 66% 35%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 210 40% 94%;
+    --sidebar-foreground: 222 47% 20%;
+    --sidebar-primary: 172 66% 35%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 30% 88%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 210 30% 82%;
+    --sidebar-ring: 172 66% 35%;
+
+    --success: 152 69% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+
+    --glow-primary: 0 0 20px hsl(172 66% 35% / 0.2);
+    --glow-primary-lg: 0 0 40px hsl(172 66% 35% / 0.15), 0 0 80px hsl(172 66% 35% / 0.08);
+  }
+
+  /* ── Dark mode ── */
+  .dark {
     --background: 222 47% 6%;
     --foreground: 210 40% 92%;
 
@@ -33,8 +84,6 @@
     --border: 222 30% 18%;
     --input: 222 30% 18%;
     --ring: 172 66% 50%;
-
-    --radius: 0.75rem;
 
     --sidebar-background: 222 47% 8%;
     --sidebar-foreground: 210 40% 85%;

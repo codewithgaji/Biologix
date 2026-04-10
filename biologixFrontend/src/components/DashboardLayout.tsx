@@ -7,6 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { clearAuth } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const navItems = [
   { label: "Overview", path: "/dashboard", icon: LayoutDashboard },
@@ -14,7 +15,7 @@ const navItems = [
   { label: "Departments", path: "/dashboard/departments", icon: Building2 },
   { label: "Attendance", path: "/dashboard/attendance", icon: CalendarCheck },
   { label: "Leaves", path: "/dashboard/leaves", icon: CalendarDays },
-  { label: "Holidays",    path: "/dashboard/holidays",    icon: CalendarDays    }, 
+  { label: "Holidays", path: "/dashboard/holidays", icon: CalendarDays },
   { label: "Import Data", path: "/dashboard/import", icon: Upload },
   { label: "Export", path: "/dashboard/export", icon: Download },
 ];
@@ -76,7 +77,7 @@ export default function DashboardLayout() {
                 <Fingerprint className="h-6 w-6 text-primary" />
                 <span className="font-bold text-foreground">BioLogix</span>
               </div>
-              <button onClick={() => setMobileOpen(false)} className="text-muted-foreground">
+              <button onClick={() => setMobileOpen(false)} className="text-muted-foreground" aria-label="Close menu">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -89,17 +90,21 @@ export default function DashboardLayout() {
 
       {/* Main content */}
       <div className="flex-1 lg:ml-60 flex flex-col min-h-screen">
-        {/* Top bar */}
-        <header className="sticky top-0 z-20 flex items-center justify-between px-4 lg:px-6 py-3 border-b border-border bg-card/80 backdrop-blur-lg">
-          <button className="lg:hidden text-foreground" onClick={() => setMobileOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="hidden lg:block" />
-          <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground hover:text-foreground">
+      {/* Top bar */}
+      <header className="sticky top-0 z-20 flex items-center justify-between px-4 lg:px-6 py-3 border-b border-border bg-card/80 backdrop-blur-lg">
+        <button className="lg:hidden text-foreground" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+          <Menu className="h-5 w-5" />
+        </button>
+        <div className="hidden lg:block" />
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />
             Logout
           </Button>
-        </header>
+        </div>
+      </header>
+              
 
         <main className="flex-1 p-4 lg:p-6">
           <Outlet />
