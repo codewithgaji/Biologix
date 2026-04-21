@@ -17,7 +17,6 @@ try:
     import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.formatting.rule import ColorScaleRule
 except ImportError:
     raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
@@ -27,8 +26,9 @@ router = APIRouter(
     dependencies=[Depends(get_current_admin)]
 )
 
-# ── Palette
+# ── Palette ───────────────────────────────────────────────────────────────────
 NAVY             = "1B2A4A"
+DEPT_BLUE        = "1F4E79"   # department header fill
 LIGHT_BLUE       = "BDD7EE"
 PALE_BLUE        = "DEEAF1"
 WHITE            = "FFFFFF"
@@ -45,47 +45,61 @@ LEAVE_UNPAID     = "FFF3E0"
 LEAVE_HDR        = "2E7D32"
 LEAVE_UNPAID_HDR = "E65100"
 SUMMARY_BOLD     = "1B2A4A"
+SAT_HOURS        = 6   # mon_sat workers do 8–2 on Saturdays
 
-# ── Borders
+# ── Borders ───────────────────────────────────────────────────────────────────
 def thin_border(color="CCCCCC"):
     s = Side(style="thin", color=color)
+    return Border(left=s, right=s, top=s, bottom=s)
+
+def thick_border(color="1F4E79"):
+    s = Side(style="medium", color=color)
     return Border(left=s, right=s, top=s, bottom=s)
 
 THIN   = thin_border()
 MEDIUM = thin_border("AAAAAA")
 
-# ── Fonts
+# ── Fonts ─────────────────────────────────────────────────────────────────────
 def hdr_font(size=10):                  return Font(name="Arial", bold=True, color=WHITE, size=size)
 def body_font(size=9):                  return Font(name="Arial", size=size, color=DARK_GRAY)
 def bold_font(size=9, color=DARK_GRAY): return Font(name="Arial", bold=True, size=size, color=color)
-def title_font(size=14):                return Font(name="Arial", bold=True, color=NAVY, size=size)
+def title_font(size=14):                return Font(name="Arial", bold=True, color=WHITE, size=size)
+def dept_font(size=11):                 return Font(name="Arial", bold=True, color=WHITE, size=size)
 def sub_font(size=9):                   return Font(name="Arial", italic=True, color="888888", size=size)
 
-# ── Column definitions
-# 1=Employee ID, 2=Name, 3=Position, 4=Department, 5=Shift
-# 6=Days Present (biometric + paid leave), 7=Days Absent (formula), 8=Expected Days
-# 9=Attendance % (formula), 10=Total Hours, 11=Expected Hours
-# 12=Absent Hours (formula: =K-J), 13=Hours % (formula), 14=Status
+def fill_of(hex_color):
+    return PatternFill("solid", fgColor=hex_color)
+
+# ── NEW column order ──────────────────────────────────────────────────────────
+# S/N | Emp ID | Name | Position | Department | Shift
+# Expected Days | Days Present | Days Absent | Attendance %
+# Expected Hrs  | Total Hrs    | Absent Hrs  | Hrs % | Status
 
 SUMMARY_COLS = [
-    "Employee ID", "Name", "Position", "Department", "Shift",
-    "Days Present", "Days Absent", "Expected Days",
-    "Attendance %", "Total Hours", "Expected Hours",
-    "Absent Hours", "Hours %", "Status"
+    "S/N", "Employee ID", "Name", "Position", "Department", "Shift",
+    "Expected Days", "Days Present", "Days Absent", "Attendance %",
+    "Expected Hrs", "Total Hrs", "Absent Hrs", "Hrs %", "Status"
 ]
-SUMMARY_WIDTHS = [13, 28, 22, 20, 12, 13, 12, 14, 14, 13, 15, 13, 10, 12]
+SUMMARY_WIDTHS = [5, 13, 28, 22, 20, 12, 14, 13, 12, 14, 13, 13, 13, 10, 12]
 
-COL_PRESENT    = 6   # F  — biometric present + paid leave days
-COL_ABSENT     = 7   # G  ← formula: =H-F
-COL_EXPECTED   = 8   # H
-COL_ATT_PCT    = 9   # I  ← formula: =IF(H>0, F/H, "")
-COL_HRS        = 10  # J  — total hours worked
-COL_EXP_HRS   = 11  # K  — expected hours
-COL_ABS_HRS   = 12  # L  ← formula: =IF(K>0, MAX(K-J,0), "") — absent hours
-COL_HRS_PCT   = 13  # M  ← formula: =IF(K>0, J/K, "")
-COL_STATUS     = 14  # N
+# Column indices (1-based)
+COL_SN         = 1
+COL_BADGE      = 2
+COL_NAME       = 3
+COL_POSITION   = 4
+COL_DEPT       = 5
+COL_SHIFT      = 6
+COL_EXP_DAYS   = 7   # G
+COL_PRESENT    = 8   # H
+COL_ABSENT     = 9   # I  ← formula: =G-H
+COL_ATT_PCT    = 10  # J  ← formula: =IF(G>0, H/G, "")
+COL_EXP_HRS    = 11  # K
+COL_HRS        = 12  # L
+COL_ABS_HRS    = 13  # M  ← formula: =IF(K>0, MAX(K-L,0), "")
+COL_HRS_PCT    = 14  # N  ← formula: =IF(K>0, L/K, "")
+COL_STATUS     = 15  # O
 
-# ── Cell helper
+# ── Cell helper ───────────────────────────────────────────────────────────────
 def cell_write(ws, row, col, value, font=None, fill=None, border=None,
                number_format=None, alignment=None):
     c = ws.cell(row=row, column=col, value=value)
@@ -96,12 +110,9 @@ def cell_write(ws, row, col, value, font=None, fill=None, border=None,
     if number_format: c.number_format = number_format
     return c
 
-def fill_of(hex_color):
-    return PatternFill("solid", fgColor=hex_color)
-
-# ── Title block
+# ── Global title block (for single-employee or single-dept exports) ───────────
 def write_title_block(ws, title, subtitle, col_count):
-    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[1].height = 32
     ws.row_dimensions[2].height = 16
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
     c = ws.cell(row=1, column=1, value=title)
@@ -114,21 +125,42 @@ def write_title_block(ws, title, subtitle, col_count):
     c.fill      = fill_of(PALE_BLUE)
     c.alignment = Alignment(horizontal="left", vertical="center", indent=2)
 
-# ── Summary header
-def write_summary_header(ws, row=3):
+# ── Department header block ───────────────────────────────────────────────────
+def write_dept_header(ws, row, dept_name, date_from, date_to, col_count):
+    """
+    Writes a bold department section header spanning all columns.
+    e.g.  IT Department Attendance Summary  (01 Jan 2026 – 24 Apr 2026)
+    """
+    label = (
+        f"  {dept_name} — Attendance Summary"
+        f"  ({date_from.strftime('%d %b %Y')} – {date_to.strftime('%d %b %Y')})"
+    )
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_count)
+    c = ws.cell(row=row, column=1, value=label)
+    c.font      = dept_font(11)
+    c.fill      = fill_of(DEPT_BLUE)
+    c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    c.border    = thick_border()
+    ws.row_dimensions[row].height = 24
+    return row + 1
+
+# ── Column header row ─────────────────────────────────────────────────────────
+def write_col_headers(ws, row, col_count):
     ws.row_dimensions[row].height = 22
     hdr_fill = fill_of(NAVY)
     for col, (label, width) in enumerate(zip(SUMMARY_COLS, SUMMARY_WIDTHS), 1):
         cell_write(ws, row, col, label, font=hdr_font(9), fill=hdr_fill, border=THIN)
-        ws.column_dimensions[get_column_letter(col)].width = width
+        ws.column_dimensions[get_column_letter(col)].width = max(
+            ws.column_dimensions[get_column_letter(col)].width or 0, width
+        )
+    return row + 1
 
-# ── Summary data row
-def write_summary_row(ws, row_num, r, alt=False):
+# ── Data row ──────────────────────────────────────────────────────────────────
+def write_data_row(ws, row_num, r, serial, alt=False):
     ws.row_dimensions[row_num].height = 18
     bg             = fill_of(PALE_BLUE if alt else WHITE)
     attendance_pct = r["attendance_pct"]
 
-    # Status badge — driven by corrected days_present (paid leave included)
     if attendance_pct is None:
         s_label, s_fill, s_font = "No Data",  fill_of(MID_GRAY),  bold_font(9, DARK_GRAY)
     elif attendance_pct >= 90:
@@ -138,72 +170,65 @@ def write_summary_row(ws, row_num, r, alt=False):
     else:
         s_label, s_fill, s_font = "Poor",      fill_of(RED_BG),   bold_font(9, RED_FG)
 
-    # Static value columns
     static = {
-        1:  r["badge_number"],
-        2:  r["name"],
-        3:  r["position"],
-        4:  r["department"],
-        5:  r["shift"].title() if r["shift"] != "—" else "—",
-        6:  r["days_present"],   # ← already corrected (biometric + paid leave)
-        8:  r["expected_days"]   if isinstance(r["expected_days"],   (int, float)) else None,
-        10: r["total_hours"],
-        11: r["expected_hours"]  if isinstance(r["expected_hours"],  (int, float)) else None,
+        COL_SN      : serial,
+        COL_BADGE   : r["badge_number"],
+        COL_NAME    : r["name"],
+        COL_POSITION: r["position"],
+        COL_DEPT    : r["department"],
+        COL_SHIFT   : r["shift"].title() if r["shift"] != "—" else "—",
+        COL_EXP_DAYS: r["expected_days"] if isinstance(r["expected_days"], (int, float)) else None,
+        COL_PRESENT : r["days_present"],
+        COL_EXP_HRS : r["expected_hours"] if isinstance(r["expected_hours"], (int, float)) else None,
+        COL_HRS     : r["total_hours"],
     }
 
     for col, val in static.items():
-        fmt = "0.00" if col in (10, 11) else None
+        fmt = "0.00" if col in (COL_EXP_HRS, COL_HRS) else None
         cell_write(ws, row_num, col, val,
                    font=body_font(), fill=bg, border=THIN, number_format=fmt)
 
-    P = get_column_letter(COL_PRESENT)
-    E = get_column_letter(COL_EXPECTED)
-    J = get_column_letter(COL_HRS)
-    K = get_column_letter(COL_EXP_HRS)
-    n = row_num
+    n  = row_num
+    G  = get_column_letter(COL_EXP_DAYS)
+    H  = get_column_letter(COL_PRESENT)
+    K  = get_column_letter(COL_EXP_HRS)
+    L  = get_column_letter(COL_HRS)
 
-    # Days Absent = Expected - Present
+    # Days Absent = Expected Days - Days Present
     c = ws.cell(row=n, column=COL_ABSENT)
-    c.value         = f'=IF({E}{n}<>"",{E}{n}-{P}{n},"—")'
-    c.font          = body_font()
-    c.fill          = bg
-    c.border        = THIN
+    c.value         = f'=IF({G}{n}<>"",{G}{n}-{H}{n},"—")'
+    c.font, c.fill, c.border = body_font(), bg, THIN
     c.alignment     = Alignment(horizontal="center", vertical="center")
 
-    # Attendance % = Present / Expected
+    # Attendance %
     c = ws.cell(row=n, column=COL_ATT_PCT)
-    c.value         = f"=IF({E}{n}>0,{P}{n}/{E}{n},\"\")"
-    c.font          = body_font()
-    c.fill          = bg
-    c.border        = THIN
+    c.value         = f'=IF({G}{n}>0,{H}{n}/{G}{n},"")'
+    c.font, c.fill, c.border = body_font(), bg, THIN
     c.number_format = "0.0%"
     c.alignment     = Alignment(horizontal="center", vertical="center")
 
-    # Absent Hours = MAX(Expected Hours - Total Hours, 0)
-    # Using MAX so it never goes negative. Live formula — editing J auto-updates L.
+    # Absent Hours
     c = ws.cell(row=n, column=COL_ABS_HRS)
-    c.value         = f'=IF({K}{n}>0,MAX({K}{n}-{J}{n},0),"—")'
+    c.value         = f'=IF({K}{n}>0,MAX({K}{n}-{L}{n},0),"—")'
     c.font          = body_font()
-    c.fill          = fill_of("FFF3E0") if r.get("has_unpaid_leave") else bg  # subtle tint if unpaid leave
+    c.fill          = fill_of("FFF3E0") if r.get("has_unpaid_leave") else bg
     c.border        = THIN
     c.number_format = "0.00"
     c.alignment     = Alignment(horizontal="center", vertical="center")
 
-    # Hours % = Total Hours / Expected Hours
+    # Hours %
     c = ws.cell(row=n, column=COL_HRS_PCT)
-    c.value         = f"=IF({K}{n}>0,{J}{n}/{K}{n},\"\")"
-    c.font          = body_font()
-    c.fill          = bg
-    c.border        = THIN
+    c.value         = f'=IF({K}{n}>0,{L}{n}/{K}{n},"")'
+    c.font, c.fill, c.border = body_font(), bg, THIN
     c.number_format = "0.0%"
     c.alignment     = Alignment(horizontal="center", vertical="center")
 
     # Status
     cell_write(ws, row_num, COL_STATUS, s_label, font=s_font, fill=s_fill, border=THIN)
 
-# ── Totals row
-def write_totals_row(ws, row_num, data_start, data_end, col_count):
-    ws.row_dimensions[row_num].height = 20
+# ── Subtotals row (per department) ────────────────────────────────────────────
+def write_subtotals_row(ws, row_num, data_start, data_end, col_count, label="SUBTOTAL"):
+    ws.row_dimensions[row_num].height = 18
     tot_fill = fill_of(LIGHT_BLUE)
 
     for col in range(1, col_count + 1):
@@ -213,58 +238,122 @@ def write_totals_row(ws, row_num, data_start, data_end, col_count):
         c.font      = bold_font(9, SUMMARY_BOLD)
         c.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws.cell(row=row_num, column=1).value     = "TOTALS / AVERAGES"
+    ws.cell(row=row_num, column=1).value     = label
     ws.cell(row=row_num, column=1).alignment = Alignment(
         horizontal="left", vertical="center", indent=1
     )
+    ws.merge_cells(
+        start_row=row_num, start_column=1,
+        end_row=row_num,   end_column=COL_SHIFT
+    )
 
-    P  = get_column_letter(COL_PRESENT)
-    G  = get_column_letter(COL_ABSENT)
-    E  = get_column_letter(COL_EXPECTED)
-    J  = get_column_letter(COL_HRS)
-    K  = get_column_letter(COL_EXP_HRS)
-    L  = get_column_letter(COL_ABS_HRS)
-    AP = get_column_letter(COL_ATT_PCT)
     n  = row_num
+    G  = get_column_letter(COL_EXP_DAYS)
+    H  = get_column_letter(COL_PRESENT)
+    I  = get_column_letter(COL_ABSENT)
+    J  = get_column_letter(COL_ATT_PCT)
+    K  = get_column_letter(COL_EXP_HRS)
+    L  = get_column_letter(COL_HRS)
+    M  = get_column_letter(COL_ABS_HRS)
+    N  = get_column_letter(COL_HRS_PCT)
 
-    ws.cell(row=n, column=COL_PRESENT).value  = f"=SUM({P}{data_start}:{P}{data_end})"
-    ws.cell(row=n, column=COL_ABSENT).value   = f"=SUM({G}{data_start}:{G}{data_end})"
-    ws.cell(row=n, column=COL_EXPECTED).value = f"=SUM({E}{data_start}:{E}{data_end})"
-    ws.cell(row=n, column=COL_HRS).value      = f"=SUM({J}{data_start}:{J}{data_end})"
+    ws.cell(row=n, column=COL_EXP_DAYS).value = f"=SUM({G}{data_start}:{G}{data_end})"
+    ws.cell(row=n, column=COL_PRESENT).value  = f"=SUM({H}{data_start}:{H}{data_end})"
+    ws.cell(row=n, column=COL_ABSENT).value   = f"=SUM({I}{data_start}:{I}{data_end})"
     ws.cell(row=n, column=COL_EXP_HRS).value  = f"=SUM({K}{data_start}:{K}{data_end})"
+    ws.cell(row=n, column=COL_HRS).value      = f"=SUM({L}{data_start}:{L}{data_end})"
 
-    # Total absent hours = sum of all absent hour rows
     c = ws.cell(row=n, column=COL_ABS_HRS)
-    c.value         = f"=SUM({L}{data_start}:{L}{data_end})"
-    c.number_format = "0.00"
+    c.value, c.number_format = f"=SUM({M}{data_start}:{M}{data_end})", "0.00"
 
-    # Average attendance %
     c = ws.cell(row=n, column=COL_ATT_PCT)
-    c.value         = f"=AVERAGE({AP}{data_start}:{AP}{data_end})"
+    c.value         = f"=IFERROR(AVERAGE({J}{data_start}:{J}{data_end}),\"\")"
     c.number_format = "0.0%"
 
-    # Hours %
     c = ws.cell(row=n, column=COL_HRS_PCT)
-    c.value         = f'=IF(SUM({K}{data_start}:{K}{data_end})>0,SUM({J}{data_start}:{J}{data_end})/SUM({K}{data_start}:{K}{data_end}),"—")'
+    c.value         = f'=IF(SUM({K}{data_start}:{K}{data_end})>0,SUM({L}{data_start}:{L}{data_end})/SUM({K}{data_start}:{K}{data_end}),"—")'
     c.number_format = "0.0%"
 
-    for col in [COL_PRESENT, COL_ABSENT, COL_EXPECTED, COL_HRS,
-                COL_EXP_HRS, COL_ABS_HRS, COL_ATT_PCT, COL_HRS_PCT]:
+    for col in [COL_EXP_DAYS, COL_PRESENT, COL_ABSENT, COL_ATT_PCT,
+                COL_EXP_HRS, COL_HRS, COL_ABS_HRS, COL_HRS_PCT]:
         c = ws.cell(row=n, column=col)
-        c.fill      = tot_fill
-        c.border    = MEDIUM
+        c.fill, c.border = tot_fill, MEDIUM
         c.font      = bold_font(9, SUMMARY_BOLD)
         c.alignment = Alignment(horizontal="center", vertical="center")
-        if col in (COL_HRS, COL_EXP_HRS, COL_ABS_HRS):
+        if col in (COL_EXP_HRS, COL_HRS, COL_ABS_HRS):
             c.number_format = "0.00"
 
-# ── Leave section writer (unchanged)
+# ── Grand totals row ──────────────────────────────────────────────────────────
+def write_grand_totals_row(ws, row_num, subtotal_rows, col_count):
+    """Sums across all department subtotal rows for the grand total."""
+    ws.row_dimensions[row_num].height = 22
+    tot_fill = fill_of(NAVY)
+
+    for col in range(1, col_count + 1):
+        c = ws.cell(row=row_num, column=col)
+        c.fill      = tot_fill
+        c.border    = thick_border()
+        c.font      = bold_font(10, WHITE)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.cell(row=row_num, column=1).value     = "GRAND TOTAL"
+    ws.cell(row=row_num, column=1).alignment = Alignment(
+        horizontal="left", vertical="center", indent=1
+    )
+    ws.merge_cells(
+        start_row=row_num, start_column=1,
+        end_row=row_num,   end_column=COL_SHIFT
+    )
+
+    def sum_of_rows(col_letter):
+        refs = "+".join(f"{col_letter}{r}" for r in subtotal_rows)
+        return f"={refs}"
+
+    n = row_num
+    G = get_column_letter(COL_EXP_DAYS)
+    H = get_column_letter(COL_PRESENT)
+    I = get_column_letter(COL_ABSENT)
+    J = get_column_letter(COL_ATT_PCT)
+    K = get_column_letter(COL_EXP_HRS)
+    L = get_column_letter(COL_HRS)
+    M = get_column_letter(COL_ABS_HRS)
+    N_col = get_column_letter(COL_HRS_PCT)
+
+    ws.cell(row=n, column=COL_EXP_DAYS).value = sum_of_rows(G)
+    ws.cell(row=n, column=COL_PRESENT).value  = sum_of_rows(H)
+    ws.cell(row=n, column=COL_ABSENT).value   = sum_of_rows(I)
+    ws.cell(row=n, column=COL_EXP_HRS).value  = sum_of_rows(K)
+    ws.cell(row=n, column=COL_HRS).value      = sum_of_rows(L)
+
+    c = ws.cell(row=n, column=COL_ABS_HRS)
+    c.value, c.number_format = sum_of_rows(M), "0.00"
+
+    att_refs = "+".join(f"{J}{r}" for r in subtotal_rows)
+    c = ws.cell(row=n, column=COL_ATT_PCT)
+    c.value         = f"=IFERROR(({att_refs})/{len(subtotal_rows)},\"\")"
+    c.number_format = "0.0%"
+
+    c = ws.cell(row=n, column=COL_HRS_PCT)
+    k_sum = "+".join(f"{K}{r}" for r in subtotal_rows)
+    l_sum = "+".join(f"{L}{r}" for r in subtotal_rows)
+    c.value         = f'=IF(({k_sum})>0,({l_sum})/({k_sum}),"—")'
+    c.number_format = "0.0%"
+
+    for col in [COL_EXP_DAYS, COL_PRESENT, COL_ABSENT, COL_ATT_PCT,
+                COL_EXP_HRS, COL_HRS, COL_ABS_HRS, COL_HRS_PCT]:
+        c = ws.cell(row=n, column=col)
+        c.fill, c.border = tot_fill, thick_border()
+        c.font      = bold_font(10, WHITE)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        if col in (COL_EXP_HRS, COL_HRS, COL_ABS_HRS):
+            c.number_format = "0.00"
+
+# ── Leave section ─────────────────────────────────────────────────────────────
 def write_leave_section(ws, leave_rows, start_row, col_count):
     if not leave_rows:
         return start_row
 
     row = start_row + 1
-
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_count)
     c = ws.cell(row=row, column=1, value="LEAVE RECORDS IN PERIOD")
     c.font      = Font(name="Arial", bold=True, color=WHITE, size=10)
@@ -282,7 +371,7 @@ def write_leave_section(ws, leave_rows, start_row, col_count):
         c.border    = THIN
         c.alignment = Alignment(horizontal="center", vertical="center")
         ws.column_dimensions[get_column_letter(col)].width = max(
-            ws.column_dimensions[get_column_letter(col)].width, width
+            ws.column_dimensions[get_column_letter(col)].width or 0, width
         )
     ws.row_dimensions[row].height = 18
     row += 1
@@ -290,17 +379,16 @@ def write_leave_section(ws, leave_rows, start_row, col_count):
     paid_rows   = [r for r in leave_rows if r["leave_type"] == "paid"]
     unpaid_rows = [r for r in leave_rows if r["leave_type"] == "unpaid"]
 
-    def write_leave_rows(rows, leave_type):
+    def write_leave_group(rows, leave_type):
         nonlocal row
-        if not rows:
-            return
+        if not rows: return
         label     = "Paid Leave" if leave_type == "paid" else "Unpaid Leave"
         hdr_color = LEAVE_HDR if leave_type == "paid" else LEAVE_UNPAID_HDR
         bg_color  = LEAVE_PAID if leave_type == "paid" else LEAVE_UNPAID
 
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(leave_cols))
         c = ws.cell(row=row, column=1,
-                    value=f"  {label} ({len(rows)} record{'s' if len(rows) > 1 else ''})")
+                    value=f"  {label} ({len(rows)} record{'s' if len(rows)>1 else ''})")
         c.font      = Font(name="Arial", bold=True, color=WHITE, size=9)
         c.fill      = fill_of(hdr_color)
         c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
@@ -308,22 +396,17 @@ def write_leave_section(ws, leave_rows, start_row, col_count):
         row += 1
 
         for r in rows:
-            bg   = fill_of(bg_color)
-            vals = [
-                r["badge_number"], r["name"], label,
-                r["date_from"], r["date_to"], r["days"],
-                r["description"] or "—",
-            ]
+            vals = [r["badge_number"], r["name"], label,
+                    r["date_from"], r["date_to"], r["days"], r["description"] or "—"]
             for col, val in enumerate(vals, 1):
                 c = ws.cell(row=row, column=col, value=val)
                 c.font      = body_font()
-                c.fill      = bg
+                c.fill      = fill_of(bg_color)
                 c.border    = THIN
                 c.alignment = Alignment(
                     horizontal="center" if col != 7 else "left", vertical="center"
                 )
-                if col in (4, 5):
-                    c.number_format = "DD-MMM-YYYY"
+                if col in (4, 5): c.number_format = "DD-MMM-YYYY"
             ws.row_dimensions[row].height = 16
             row += 1
 
@@ -334,21 +417,51 @@ def write_leave_section(ws, leave_rows, start_row, col_count):
         c.fill      = fill_of(LIGHT_BLUE)
         c.border    = MEDIUM
         c.alignment = Alignment(horizontal="right", vertical="center", indent=1)
-        for col in [6]:
-            c = ws.cell(row=row, column=col, value=total_days)
-            c.font      = bold_font(9, SUMMARY_BOLD)
-            c.fill      = fill_of(LIGHT_BLUE)
-            c.border    = MEDIUM
-            c.alignment = Alignment(horizontal="center", vertical="center")
+        c = ws.cell(row=row, column=6, value=total_days)
+        c.font      = bold_font(9, SUMMARY_BOLD)
+        c.fill      = fill_of(LIGHT_BLUE)
+        c.border    = MEDIUM
+        c.alignment = Alignment(horizontal="center", vertical="center")
         ws.row_dimensions[row].height = 16
         row += 1
 
-    write_leave_rows(paid_rows,   "paid")
-    write_leave_rows(unpaid_rows, "unpaid")
+    write_leave_group(paid_rows,   "paid")
+    write_leave_group(unpaid_rows, "unpaid")
     return row
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+SHIFT_HOURS = {"morning": 8, "afternoon": 8, "night": 12, "day": 10}
 
-# ── Core data builder — now paid-leave-aware ──────────────────────────────────
+def is_working_day_for(d: date, emp: Employee) -> bool:
+    weekday = d.weekday()
+    if weekday == 6: return False
+    if weekday == 5:
+        wd_val = emp.work_days.value if emp.work_days else "mon_fri"
+        return wd_val == "mon_sat"
+    return True
+
+def get_day_hours(d: date, emp: Employee) -> float:
+    if d.weekday() == 5: return SAT_HOURS
+    return SHIFT_HOURS.get(emp.shift.value if emp.shift else None, 0)
+
+def count_working_days_and_hours(emp: Employee, d_from: date, d_to: date):
+    wd_val = emp.work_days.value if emp.work_days else None
+    if not wd_val: return None, None
+    days, hours, curr = 0, 0.0, d_from
+    while curr <= d_to:
+        wd = curr.weekday()
+        if wd == 6:
+            pass
+        elif wd == 5:
+            if wd_val == "mon_sat":
+                days += 1; hours += SAT_HOURS
+        else:
+            days += 1
+            hours += SHIFT_HOURS.get(emp.shift.value if emp.shift else None, 0)
+        curr += timedelta(days=1)
+    return days, round(hours, 2)
+
+# ── Core data builder ─────────────────────────────────────────────────────────
 def build_user_summary(logs_with_employees, year, month=None,
                        date_from=None, date_to=None, db=None):
     grouped = defaultdict(list)
@@ -363,9 +476,7 @@ def build_user_summary(logs_with_employees, year, month=None,
         ins  = [e[0].timestamp for e in entries if e[0].punch_status == PunchStatusEnum.check_in]
         outs = [e[0].timestamp for e in entries if e[0].punch_status == PunchStatusEnum.check_out]
         if ins and outs:
-            user_hours[user_id] += round(
-                (max(outs) - min(ins)).total_seconds() / 3600, 2
-            )
+            user_hours[user_id] += round((max(outs) - min(ins)).total_seconds() / 3600, 2)
         user_days[user_id] += 1
 
     d_from = date_from or date(year, month, 1)
@@ -379,81 +490,38 @@ def build_user_summary(logs_with_employees, year, month=None,
     paid_leave_hours: dict[int, float] = defaultdict(float)
     has_unpaid_leave: dict[int, bool]  = defaultdict(bool)
 
-    SHIFT_HOURS = {"morning": 8, "afternoon": 8, "night": 12, "day": 10}
-
-    def is_working_day_for(d: date, emp: Employee) -> bool:
-        """Check if date is a working day for this specific employee."""
-        weekday = d.weekday()  # 0=Mon … 5=Sat, 6=Sun
-        if weekday == 6:
-            return False  # Sunday: never a working day
-        if weekday == 5:
-            # Saturday only counts for mon_sat employees
-            wd_val = emp.work_days.value if emp.work_days else "mon_fri"
-            return wd_val == "mon_sat"
-        return True  # Mon–Fri always counts
-
     if db is not None:
         leave_q = db.query(Leave).filter(
-            Leave.date_to   >= d_from,
-            Leave.date_from <= d_to,
+            Leave.date_to >= d_from, Leave.date_from <= d_to
         ).all()
 
         for leave in leave_q:
             eff_from = max(leave.date_from, d_from)
             eff_to   = min(leave.date_to,   d_to)
-
-            cursor = eff_from
+            cursor   = eff_from
             while cursor <= eff_to:
-                if leave.applies_to_all:
-                    affected = list(emp_map.keys())
-                else:
-                    affected = [leave.user_id] if leave.user_id in emp_map else []
-
+                affected = list(emp_map.keys()) if leave.applies_to_all else (
+                    [leave.user_id] if leave.user_id in emp_map else []
+                )
                 for uid in affected:
                     emp = emp_map[uid]
-
-                    # KEY FIX: For company-wide leaves, only credit the day
-                    # if it's actually a working day for this specific employee.
-                    # Individual leaves are always credited as-is (admin's intent).
                     if leave.applies_to_all and not is_working_day_for(cursor, emp):
-                        cursor += timedelta(days=1)
-                        continue
-
-                    if leave.leave_type == LeaveTypeEnum.paid:
+                        pass
+                    elif leave.leave_type == LeaveTypeEnum.paid:
                         if cursor not in biometric_dates[uid]:
                             paid_leave_extra[uid] += 1
-                            s_val     = emp.shift.value if emp.shift else None
-                            shift_hrs = SHIFT_HOURS.get(s_val, 0)
-                            paid_leave_hours[uid] += shift_hrs
+                            paid_leave_hours[uid] += get_day_hours(cursor, emp)
                     else:
                         has_unpaid_leave[uid] = True
-
                 cursor += timedelta(days=1)
-
-    def count_working_days(wd_val, year, month, d_from=None, d_to=None):
-        if not wd_val: return None
-        curr  = d_from or date(year, month, 1)
-        end   = d_to   or date(year, month, calendar.monthrange(year, month)[1])
-        count = 0
-        while curr <= end:
-            wd = curr.weekday()
-            if (wd_val == "mon_fri" and wd < 5) or (wd_val == "mon_sat" and wd < 6):
-                count += 1
-            curr += timedelta(days=1)
-        return count
 
     rows = []
     for user_id, emp in emp_map.items():
-        s_val  = emp.shift.value     if emp.shift     else None
-        wd_val = emp.work_days.value if emp.work_days else None
-        exp_d  = count_working_days(wd_val, year, month, date_from, date_to)
-        exp_h  = round(exp_d * SHIFT_HOURS.get(s_val, 0), 2) if exp_d and s_val else None
-
+        s_val             = emp.shift.value     if emp.shift     else None
+        exp_d, exp_h      = count_working_days_and_hours(emp, d_from, d_to)
         biometric_present = user_days[user_id]
         corrected_present = biometric_present + paid_leave_extra[user_id]
-
-        raw_hours       = round(user_hours[user_id], 2)
-        corrected_hours = round(raw_hours + paid_leave_hours[user_id], 2)
+        corrected_hours   = round(user_hours[user_id] + paid_leave_hours[user_id], 2)
 
         rows.append({
             "user_id"         : user_id,
@@ -474,26 +542,20 @@ def build_user_summary(logs_with_employees, year, month=None,
 
     return sorted(rows, key=lambda x: (x["department"], x["name"]))
 
-
-
-# ── fetch_leave_rows (unchanged from your original) ──────────────────────────
+# ── fetch_leave_rows ──────────────────────────────────────────────────────────
 def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
     q = db.query(Leave, Employee).join(
         Employee, Leave.user_id == Employee.user_id, isouter=True
-    ).filter(
-        Leave.date_to   >= date_from,
-        Leave.date_from <= date_to,
-    )
+    ).filter(Leave.date_to >= date_from, Leave.date_from <= date_to)
+
     if user_id:
         q = q.filter((Leave.user_id == user_id) | (Leave.applies_to_all == True))
     elif dept_id:
         q = q.filter(
-            (Leave.applies_to_all == True) |
-            (Employee.department_id == dept_id)
+            (Leave.applies_to_all == True) | (Employee.department_id == dept_id)
         )
 
-    leaves = q.all()
-
+    leaves        = q.all()
     all_employees = []
     if not user_id and any(l.applies_to_all for l, _ in leaves):
         all_employees = db.query(Employee).all()
@@ -504,100 +566,134 @@ def fetch_leave_rows(db, date_from, date_to, user_id=None, dept_id=None):
     if user_id:
         single_emp = db.query(Employee).filter(Employee.user_id == user_id).first()
 
-    def count_effective_days(leave: Leave, eff_from: date, eff_to: date, emp: Employee) -> int:
-        """
-        Count how many days in the leave range actually apply to this employee.
-        For applies_to_all leaves, skip days that fall outside the employee's
-        working schedule (e.g. Saturday for mon_fri workers).
-        For individual leaves, count all days as-is — admin assigned them deliberately.
-        """
+    def count_effective_days(leave, eff_from, eff_to, emp):
         if not leave.applies_to_all:
             return (eff_to - eff_from).days + 1
-
-        wd_val  = emp.work_days.value if emp.work_days else "mon_fri"
-        count   = 0
-        cursor  = eff_from
+        wd_val = emp.work_days.value if emp.work_days else "mon_fri"
+        count, cursor = 0, eff_from
         while cursor <= eff_to:
-            weekday = cursor.weekday()
-            if weekday == 6:
-                pass  # Sunday: never counts
-            elif weekday == 5:
-                if wd_val == "mon_sat":
-                    count += 1
-            else:
-                count += 1  # Mon–Fri always counts
+            wd = cursor.weekday()
+            if wd != 6 and (wd != 5 or wd_val == "mon_sat"):
+                count += 1
             cursor += timedelta(days=1)
         return count
 
     result = []
     for leave, emp in leaves:
-        effective_from = max(leave.date_from, date_from)
-        effective_to   = min(leave.date_to,   date_to)
+        eff_from = max(leave.date_from, date_from)
+        eff_to   = min(leave.date_to,   date_to)
 
         if leave.applies_to_all:
-            if user_id:
-                if single_emp:
-                    days = count_effective_days(leave, effective_from, effective_to, single_emp)
-                    # KEY FIX: skip entirely if zero effective days for this employee
-                    # (e.g. Saturday-only leave for a mon_fri worker)
-                    if days > 0:
-                        result.append({
-                            "badge_number": single_emp.badge_number or "—",
-                            "name"        : single_emp.name,
-                            "leave_type"  : leave.leave_type.value,
-                            "date_from"   : effective_from,
-                            "date_to"     : effective_to,
-                            "days"        : days,
-                            "description" : leave.description or "",
-                        })
-            else:
-                for e in all_employees:
-                    days = count_effective_days(leave, effective_from, effective_to, e)
-                    if days > 0:
-                        result.append({
-                            "badge_number": e.badge_number or "—",
-                            "name"        : e.name,
-                            "leave_type"  : leave.leave_type.value,
-                            "date_from"   : effective_from,
-                            "date_to"     : effective_to,
-                            "days"        : days,
-                            "description" : leave.description or "",
-                        })
+            targets = [single_emp] if user_id and single_emp else all_employees
+            for e in targets:
+                days = count_effective_days(leave, eff_from, eff_to, e)
+                if days > 0:
+                    result.append({
+                        "badge_number": e.badge_number or "—", "name": e.name,
+                        "leave_type": leave.leave_type.value,
+                        "date_from": eff_from, "date_to": eff_to,
+                        "days": days, "description": leave.description or "",
+                    })
         elif emp:
-            days = count_effective_days(leave, effective_from, effective_to, emp)
+            days = count_effective_days(leave, eff_from, eff_to, emp)
             if days > 0:
                 result.append({
-                    "badge_number": emp.badge_number or "—",
-                    "name"        : emp.name,
-                    "leave_type"  : leave.leave_type.value,
-                    "date_from"   : effective_from,
-                    "date_to"     : effective_to,
-                    "days"        : days,
-                    "description" : leave.description or "",
+                    "badge_number": emp.badge_number or "—", "name": emp.name,
+                    "leave_type": leave.leave_type.value,
+                    "date_from": eff_from, "date_to": eff_to,
+                    "days": days, "description": leave.description or "",
                 })
 
     return sorted(result, key=lambda x: (x["leave_type"], x["name"]))
 
+# ── All-departments sheet writer ──────────────────────────────────────────────
+def write_all_depts_sheet(ws, all_rows, date_from, date_to, leave_rows=None):
+    """
+    Single sheet with all departments stacked.
+    Each dept gets: 2 blank spacer rows → dept header → col headers → data rows → subtotal row
+    Ends with a grand total row across all dept subtotals.
+    """
+    col_count = len(SUMMARY_COLS)
 
-# ── Sheet writer
-def write_summary_sheet(ws, rows, title, subtitle,
+    # Set column widths once
+    for col, width in enumerate(SUMMARY_WIDTHS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+
+    ws.sheet_view.showGridLines = False
+
+    # ── Report title (rows 1–2)
+    period = f"{date_from.strftime('%d %b %Y')} – {date_to.strftime('%d %b %Y')}"
+    write_title_block(ws,
+        title    = f"Attendance Report  ·  All Departments  ·  {period}",
+        subtitle = f"Generated {date.today()}  ·  {len(all_rows)} employees across all departments",
+        col_count= col_count
+    )
+
+    current_row    = 3   # start writing from row 3
+    subtotal_rows  = []  # track subtotal row numbers for grand total
+    dept_groups    = defaultdict(list)
+    for r in all_rows:
+        dept_groups[r["department"]].append(r)
+
+    for dept_name in sorted(dept_groups.keys()):
+        dept_rows = dept_groups[dept_name]
+
+        # ── 2 blank spacer rows (skip for very first dept — title block is above)
+        if subtotal_rows:
+            current_row += 2
+
+        # ── Department header
+        current_row = write_dept_header(ws, current_row, dept_name, date_from, date_to, col_count)
+
+        # ── Column headers
+        current_row = write_col_headers(ws, current_row, col_count)
+
+        # ── Data rows
+        data_start = current_row
+        for i, r in enumerate(dept_rows):
+            write_data_row(ws, current_row, r, serial=i + 1, alt=(i % 2 == 1))
+            current_row += 1
+        data_end = current_row - 1
+
+        # ── Subtotal row
+        write_subtotals_row(ws, current_row, data_start, data_end, col_count,
+                            label=f"  {dept_name} — Subtotal")
+        subtotal_rows.append(current_row)
+        current_row += 1
+
+    # ── Grand total
+    current_row += 1
+    write_grand_totals_row(ws, current_row, subtotal_rows, col_count)
+    current_row += 1
+
+    # ── Leave section (optional)
+    if leave_rows:
+        write_leave_section(ws, leave_rows, current_row + 1, col_count)
+
+    ws.freeze_panes = "A3"
+
+# ── Single-dept / single-employee sheet writer ────────────────────────────────
+def write_summary_sheet(ws, rows, title, subtitle, date_from, date_to,
                         leave_rows=None, single_employee_leaves=None):
     col_count  = len(SUMMARY_COLS)
     data_start = 4
     data_end   = data_start + len(rows) - 1
 
+    for col, width in enumerate(SUMMARY_WIDTHS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+
     write_title_block(ws, title, subtitle, col_count)
-    write_summary_header(ws, row=3)
+    write_col_headers(ws, row=3, col_count=col_count)
+
     for i, r in enumerate(rows):
-        write_summary_row(ws, data_start + i, r, alt=(i % 2 == 1))
+        write_data_row(ws, data_start + i, r, serial=i + 1, alt=(i % 2 == 1))
 
     totals_row = data_end + 1
-    write_totals_row(ws, totals_row, data_start, data_end, col_count)
+    write_subtotals_row(ws, totals_row, data_start, data_end, col_count, label="TOTALS / AVERAGES")
 
-    ws.freeze_panes         = "A4"
+    ws.freeze_panes             = "A4"
     ws.sheet_view.showGridLines = False
 
-    # Single employee leave notes
     if single_employee_leaves:
         row = totals_row + 2
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_count)
@@ -607,7 +703,6 @@ def write_summary_sheet(ws, rows, title, subtitle,
         c.alignment = Alignment(horizontal="left", vertical="center", indent=2)
         ws.row_dimensions[row].height = 16
         row += 1
-
         for leave in single_employee_leaves:
             is_paid    = leave["leave_type"] == "paid"
             days       = leave["days"]
@@ -621,63 +716,67 @@ def write_summary_sheet(ws, rows, title, subtitle,
             )
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=col_count)
             c = ws.cell(row=row, column=1, value=note)
-            c.font      = Font(name="Arial", size=9,
-                               color=GREEN_FG if is_paid else RED_FG)
+            c.font      = Font(name="Arial", size=9, color=GREEN_FG if is_paid else RED_FG)
             c.fill      = fill_of(GREEN_BG if is_paid else RED_BG)
             c.border    = thin_border("CCCCCC")
             c.alignment = Alignment(horizontal="left", vertical="center", indent=2)
             ws.row_dimensions[row].height = 16
             row += 1
-
     elif leave_rows:
         write_leave_section(ws, leave_rows, totals_row + 1, col_count)
 
-
-# ── Query helper
+# ── Query helper ──────────────────────────────────────────────────────────────
 def base_query(db, date_from, date_to, dept_id=None, user_id=None):
     q = db.query(AttendanceLog, Employee).join(
         Employee, AttendanceLog.user_id == Employee.user_id
-    ).filter(
-        AttendanceLog.date >= date_from,
-        AttendanceLog.date <= date_to,
-    )
+    ).filter(AttendanceLog.date >= date_from, AttendanceLog.date <= date_to)
     if dept_id: q = q.filter(Employee.department_id == dept_id)
     if user_id: q = q.filter(AttendanceLog.user_id == user_id)
     return q
 
-
-# ── Workbook builders — pass db into build_user_summary ──────────────────────
+# ── Workbook builders ─────────────────────────────────────────────────────────
 def build_workbook_monthly(db, year, month, dept_id=None, user_id=None):
-    _, last = calendar.monthrange(year, month)
-    d_from  = date(year, month, 1)
-    d_to    = date(year, month, last)
-    logs    = base_query(db, d_from, d_to, dept_id, user_id).all()
+    _, last    = calendar.monthrange(year, month)
+    d_from     = date(year, month, 1)
+    d_to       = date(year, month, last)
+    logs       = base_query(db, d_from, d_to, dept_id, user_id).all()
     if not logs: raise HTTPException(status_code=404, detail="No data")
 
-    rows       = build_user_summary(logs, year, month, db=db)          # ← db passed
+    rows       = build_user_summary(logs, year, month, db=db)
     leave_rows = fetch_leave_rows(db, d_from, d_to, user_id, dept_id)
     month_name = d_from.strftime("%B %Y")
+    period     = f"{d_from.strftime('%d %b %Y')} – {d_to.strftime('%d %b %Y')}"
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Summary"
-    write_summary_sheet(ws, rows,
-        title                  = f"Attendance Summary — {month_name}",
-        subtitle               = f"Generated {date.today()} · {len(rows)} employees",
-        leave_rows             = leave_rows if not user_id else None,
-        single_employee_leaves = leave_rows if user_id     else None,
-    )
+    ws.title = "All Departments" if not user_id else "Summary"
 
-    if not user_id:
+    if user_id:
+        write_summary_sheet(ws, rows,
+            title                  = f"Attendance — {rows[0]['name']} — {month_name}",
+            subtitle               = f"Generated {date.today()}",
+            date_from              = d_from, date_to = d_to,
+            single_employee_leaves = leave_rows,
+        )
+    elif dept_id:
+        write_summary_sheet(ws, rows,
+            title      = f"Attendance Summary — {month_name}",
+            subtitle   = f"Generated {date.today()} · {len(rows)} employees",
+            date_from  = d_from, date_to = d_to,
+            leave_rows = leave_rows,
+        )
+    else:
+        # All departments — single stacked sheet + per-dept tabs
+        write_all_depts_sheet(ws, rows, d_from, d_to, leave_rows)
         dept_groups = defaultdict(list)
         for r in rows: dept_groups[r["department"]].append(r)
         for dept_name, dept_rows in sorted(dept_groups.items()):
-            dept_leaves = [l for l in leave_rows
-                           if any(e["name"] == l["name"] for e in dept_rows)]
+            dept_leaves = [l for l in leave_rows if any(e["name"] == l["name"] for e in dept_rows)]
             ws_d = wb.create_sheet(title=dept_name[:31])
             write_summary_sheet(ws_d, dept_rows,
                 title      = f"{dept_name} — {month_name}",
-                subtitle   = f"{len(dept_rows)} employees",
+                subtitle   = f"{len(dept_rows)} employees · {period}",
+                date_from  = d_from, date_to = d_to,
                 leave_rows = dept_leaves,
             )
     return wb
@@ -687,39 +786,46 @@ def build_workbook_range(db, date_from, date_to, dept_id=None, user_id=None):
     logs = base_query(db, date_from, date_to, dept_id, user_id).all()
     if not logs: raise HTTPException(status_code=404, detail="No data")
 
-    rows       = build_user_summary(logs, date_from.year, None,        # ← db passed
-                                    date_from, date_to, db=db)
+    rows       = build_user_summary(logs, date_from.year, None, date_from, date_to, db=db)
     leave_rows = fetch_leave_rows(db, date_from, date_to, user_id, dept_id)
+    period     = f"{date_from.strftime('%d %b %Y')} – {date_to.strftime('%d %b %Y')}"
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Summary"
-    write_summary_sheet(ws, rows,
-        title                  = f"Attendance Summary — {date_from} to {date_to}",
-        subtitle               = f"Generated {date.today()} · {len(rows)} employees",
-        leave_rows             = leave_rows if not user_id else None,
-        single_employee_leaves = leave_rows if user_id     else None,
-    )
+    ws.title = "All Departments" if not user_id else "Summary"
 
-    if not user_id:
+    if user_id:
+        write_summary_sheet(ws, rows,
+            title                  = f"Attendance — {rows[0]['name']} — {period}",
+            subtitle               = f"Generated {date.today()}",
+            date_from              = date_from, date_to = date_to,
+            single_employee_leaves = leave_rows,
+        )
+    elif dept_id:
+        write_summary_sheet(ws, rows,
+            title      = f"Attendance Summary — {period}",
+            subtitle   = f"Generated {date.today()} · {len(rows)} employees",
+            date_from  = date_from, date_to = date_to,
+            leave_rows = leave_rows,
+        )
+    else:
+        write_all_depts_sheet(ws, rows, date_from, date_to, leave_rows)
         dept_groups = defaultdict(list)
         for r in rows: dept_groups[r["department"]].append(r)
         for dept_name, dept_rows in sorted(dept_groups.items()):
-            dept_leaves = [l for l in leave_rows
-                           if any(e["name"] == l["name"] for e in dept_rows)]
+            dept_leaves = [l for l in leave_rows if any(e["name"] == l["name"] for e in dept_rows)]
             ws_d = wb.create_sheet(title=dept_name[:31])
             write_summary_sheet(ws_d, dept_rows,
-                title      = f"{dept_name} — {date_from} to {date_to}",
+                title      = f"{dept_name} — {period}",
                 subtitle   = f"{len(dept_rows)} employees",
+                date_from  = date_from, date_to = date_to,
                 leave_rows = dept_leaves,
             )
     return wb
 
 
 def build_workbook_year(db, year, dept_id=None, user_id=None):
-    wb    = openpyxl.Workbook()
-    first = True
-
+    wb, first = openpyxl.Workbook(), True
     for month in range(1, 13):
         _, last = calendar.monthrange(year, month)
         d_from  = date(year, month, 1)
@@ -727,25 +833,29 @@ def build_workbook_year(db, year, dept_id=None, user_id=None):
         logs    = base_query(db, d_from, d_to, dept_id, user_id).all()
         if not logs: continue
 
-        rows       = build_user_summary(logs, year, month, db=db)      # ← db passed
+        rows       = build_user_summary(logs, year, month, db=db)
         leave_rows = fetch_leave_rows(db, d_from, d_to, user_id, dept_id)
         month_name = d_from.strftime("%B %Y")
 
         ws = wb.active if first else wb.create_sheet(title=month_name[:31])
         if first: ws.title = month_name[:31]; first = False
 
-        write_summary_sheet(ws, rows,
-            title      = f"Attendance Summary — {month_name}",
-            subtitle   = f"{len(rows)} employees",
-            leave_rows = leave_rows,
-        )
+        if not dept_id and not user_id:
+            write_all_depts_sheet(ws, rows, d_from, d_to, leave_rows)
+        else:
+            write_summary_sheet(ws, rows,
+                title      = f"Attendance Summary — {month_name}",
+                subtitle   = f"{len(rows)} employees",
+                date_from  = d_from, date_to = d_to,
+                leave_rows = leave_rows,
+            )
 
     if not wb.sheetnames:
         raise HTTPException(status_code=404, detail="No data for year")
     return wb
 
 
-# ── Endpoint (unchanged)
+# ── Endpoint ──────────────────────────────────────────────────────────────────
 @router.get("/attendance")
 def export_attendance(
     db            : Session        = Depends(get_db),
@@ -774,7 +884,6 @@ def export_attendance(
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-
     return StreamingResponse(
         output,
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
