@@ -351,9 +351,6 @@ def write_leave_section(ws, leave_rows, start_row, col_count):
 # ── Core data builder — now paid-leave-aware ──────────────────────────────────
 def build_user_summary(logs_with_employees, year, month=None,
                        date_from=None, date_to=None, db=None):
-    """
-    db is now accepted so we can fetch paid leave days and add them to days_present.
-    """
     grouped = defaultdict(list)
     emp_map = {}
     for log, employee in logs_with_employees:
@@ -371,7 +368,6 @@ def build_user_summary(logs_with_employees, year, month=None,
             )
         user_days[user_id] += 1
 
-    # ── Fetch paid leave days per user so they count as present ──────────────
     d_from = date_from or date(year, month, 1)
     d_to   = date_to   or date(year, month, calendar.monthrange(year, month)[1])
 
@@ -380,10 +376,21 @@ def build_user_summary(logs_with_employees, year, month=None,
         biometric_dates[user_id].add(day)
 
     paid_leave_extra: dict[int, int]   = defaultdict(int)
-    paid_leave_hours: dict[int, float] = defaultdict(float)   # ← NEW: hours to add
+    paid_leave_hours: dict[int, float] = defaultdict(float)
     has_unpaid_leave: dict[int, bool]  = defaultdict(bool)
 
-    SHIFT_HOURS = {"morning": 8, "afternoon": 8, "night": 12, "day": 10}  # move up here
+    SHIFT_HOURS = {"morning": 8, "afternoon": 8, "night": 12, "day": 10}
+
+    def is_working_day_for(d: date, emp: Employee) -> bool:
+        """Check if date is a working day for this specific employee."""
+        weekday = d.weekday()  # 0=Mon … 5=Sat, 6=Sun
+        if weekday == 6:
+            return False  # Sunday: never a working day
+        if weekday == 5:
+            # Saturday only counts for mon_sat employees
+            wd_val = emp.work_days.value if emp.work_days else "mon_fri"
+            return wd_val == "mon_sat"
+        return True  # Mon–Fri always counts
 
     if db is not None:
         leave_q = db.query(Leave).filter(
@@ -403,14 +410,21 @@ def build_user_summary(logs_with_employees, year, month=None,
                     affected = [leave.user_id] if leave.user_id in emp_map else []
 
                 for uid in affected:
+                    emp = emp_map[uid]
+
+                    # KEY FIX: For company-wide leaves, only credit the day
+                    # if it's actually a working day for this specific employee.
+                    # Individual leaves are always credited as-is (admin's intent).
+                    if leave.applies_to_all and not is_working_day_for(cursor, emp):
+                        cursor += timedelta(days=1)
+                        continue
+
                     if leave.leave_type == LeaveTypeEnum.paid:
                         if cursor not in biometric_dates[uid]:
                             paid_leave_extra[uid] += 1
-                            # ── Add shift hours for this paid leave day ──
-                            emp        = emp_map[uid]
-                            s_val      = emp.shift.value if emp.shift else None
-                            shift_hrs  = SHIFT_HOURS.get(s_val, 0)
-                            paid_leave_hours[uid] += shift_hrs   # ← NEW
+                            s_val     = emp.shift.value if emp.shift else None
+                            shift_hrs = SHIFT_HOURS.get(s_val, 0)
+                            paid_leave_hours[uid] += shift_hrs
                     else:
                         has_unpaid_leave[uid] = True
 
@@ -428,39 +442,38 @@ def build_user_summary(logs_with_employees, year, month=None,
             curr += timedelta(days=1)
         return count
 
-    SHIFT_HOURS = {"morning": 8, "afternoon": 8, "night": 12, "day": 10}
     rows = []
     for user_id, emp in emp_map.items():
-            s_val  = emp.shift.value     if emp.shift     else None
-            wd_val = emp.work_days.value if emp.work_days else None
-            exp_d  = count_working_days(wd_val, year, month, date_from, date_to)
-            exp_h  = round(exp_d * SHIFT_HOURS.get(s_val, 0), 2) if exp_d and s_val else None
+        s_val  = emp.shift.value     if emp.shift     else None
+        wd_val = emp.work_days.value if emp.work_days else None
+        exp_d  = count_working_days(wd_val, year, month, date_from, date_to)
+        exp_h  = round(exp_d * SHIFT_HOURS.get(s_val, 0), 2) if exp_d and s_val else None
 
-            biometric_present = user_days[user_id]
-            corrected_present = biometric_present + paid_leave_extra[user_id]
+        biometric_present = user_days[user_id]
+        corrected_present = biometric_present + paid_leave_extra[user_id]
 
-            # ── Biometric hours + paid leave hours combined ──
-            raw_hours       = round(user_hours[user_id], 2)
-            corrected_hours = round(raw_hours + paid_leave_hours[user_id], 2)  # ← NEW
+        raw_hours       = round(user_hours[user_id], 2)
+        corrected_hours = round(raw_hours + paid_leave_hours[user_id], 2)
 
-            rows.append({
-                "user_id"         : user_id,
-                "badge_number"    : emp.badge_number or "—",
-                "name"            : emp.name,
-                "position"        : emp.position or "—",
-                "department"      : emp.department.name if emp.department else "Unassigned",
-                "shift"           : s_val or "—",
-                "days_present"    : corrected_present,
-                "days_absent"     : (exp_d - corrected_present) if exp_d is not None else "—",
-                "expected_days"   : exp_d  if exp_d  is not None else "—",
-                "attendance_pct"  : round((corrected_present / exp_d) * 100, 1) if exp_d else None,
-                "total_hours"     : corrected_hours,                           # ← corrected
-                "expected_hours"  : exp_h  if exp_h  is not None else "—",
-                "hours_pct"       : round((corrected_hours / exp_h) * 100, 1) if exp_h else None,  # ← corrected
-                "has_unpaid_leave": has_unpaid_leave[user_id],
-            })
+        rows.append({
+            "user_id"         : user_id,
+            "badge_number"    : emp.badge_number or "—",
+            "name"            : emp.name,
+            "position"        : emp.position or "—",
+            "department"      : emp.department.name if emp.department else "Unassigned",
+            "shift"           : s_val or "—",
+            "days_present"    : corrected_present,
+            "days_absent"     : (exp_d - corrected_present) if exp_d is not None else "—",
+            "expected_days"   : exp_d  if exp_d  is not None else "—",
+            "attendance_pct"  : round((corrected_present / exp_d) * 100, 1) if exp_d else None,
+            "total_hours"     : corrected_hours,
+            "expected_hours"  : exp_h  if exp_h  is not None else "—",
+            "hours_pct"       : round((corrected_hours / exp_h) * 100, 1) if exp_h else None,
+            "has_unpaid_leave": has_unpaid_leave[user_id],
+        })
 
     return sorted(rows, key=lambda x: (x["department"], x["name"]))
+
 
 
 # ── fetch_leave_rows (unchanged from your original) ──────────────────────────
