@@ -1,10 +1,7 @@
-# from app.core.security.hashHelper import HashHelper
-# print(HashHelper.get_password_hash("biologixaccess"))
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 
-# <img src="/biologix.png" alt="BioLogix" className="h-16 w-16 object-contain drop-shadow-[0_0_20px_rgba(6,182,212,0.8)]" />
-
-
-# import secrets
-# print(secrets.token_urlsafe())
-
+DATABASE_URL = os.getenv("DATABASE_URL")
+print("DATABASE_URL:", DATABASE_URL)  # Add this to debug

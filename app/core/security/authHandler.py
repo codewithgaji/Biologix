@@ -5,7 +5,7 @@ import time
 JWT_SECRET    = config("JWT_SECRET")
 JWT_ALGORITHM = config("JWT_ALGORITHM")
 
-SESSION_DURATION = 60 * 60 * 1  # 1 hours in seconds
+SESSION_DURATION = 60 * 60 * 2  # 2 hours in seconds
 
 class AuthHandler(object):
     @staticmethod
