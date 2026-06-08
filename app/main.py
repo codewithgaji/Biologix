@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from db.database import engine
 from db.models import Employee, AttendanceLog
 from routers import employees, attendance, departments, import_router, export_router, auth_router, holiday_router, leave
+from routers.analytics_router import router as analytics_router
 from fastapi.middleware.cors import CORSMiddleware
 from db.models.department import Department
 from db.models.holiday import Holiday
@@ -48,14 +49,14 @@ app.add_middleware(
 
 
 app.include_router(auth_router.router, tags=["Auth"], prefix="/auth")
-app.include_router(employees.router)
-app.include_router(attendance.router)
-app.include_router(departments.router)
-app.include_router(import_router.router)
-app.include_router(export_router.router)
-app.include_router(leave.router)
-app.include_router(holiday_router.router)
-
+app.include_router(employees.router, tags=["Employees"])
+app.include_router(attendance.router, tags=["Attendance"])
+app.include_router(departments.router, tags=["Departments"])
+app.include_router(import_router.router, tags=["Import"])
+app.include_router(export_router.router, tags=["Export"])
+app.include_router(leave.router, tags=["Leave"])
+app.include_router(holiday_router.router, tags=["Holidays"])
+app.include_router(analytics_router, tags=["Analytics"])
 
 
 
