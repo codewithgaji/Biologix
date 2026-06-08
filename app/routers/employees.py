@@ -14,9 +14,13 @@ router = APIRouter(
 )
 
 
+
+
 @router.get("/", response_model=List[EmployeeResponse])
 def get_all_employees(db: Session = Depends(get_db)):
     return db.query(Employee).all() # This is used to get all employees
+
+
 
 
 # This is used to get users per ID.
@@ -26,6 +30,8 @@ def get_employee(user_id: int, db: Session = Depends(get_db)):
     if not employee:
         raise HTTPException(status_code=404, detail="Employee Not Found")
     return employee
+
+
 
 
 @router.post("/", response_model=EmployeeResponse)
@@ -40,6 +46,9 @@ def create_employee(payload: EmployeeCreate, db: Session = Depends(get_db)):
     return employee
 
 
+
+
+
 @router.patch("/{user_id}", response_model=EmployeeResponse)
 def update_employee(user_id: int, payload: EmployeeUpdate, db: Session = Depends(get_db)):
     employee = db.query(Employee).filter(Employee.user_id == user_id).first()
@@ -50,6 +59,8 @@ def update_employee(user_id: int, payload: EmployeeUpdate, db: Session = Depends
     db.commit()
     db.refresh(employee)
     return employee
+
+
 
 
 # This is used to update the department of multiple employees at once. This is useful when we want to move multiple employees to a new department. The payload should contain a list of user_ids and the new department_id. For example: {"user_ids": [1, 2, 3], "department_id": 2}
@@ -75,6 +86,8 @@ def bulk_update_department(
     return {"message": f"{updated} employees updated successfully", "updated": updated}
 
 
+
+
 @router.delete("/{user_id}")
 def delete_employee(user_id: int, db: Session = Depends(get_db)):
     employee = db.query(Employee).filter(Employee.user_id == user_id).first()
@@ -83,3 +96,7 @@ def delete_employee(user_id: int, db: Session = Depends(get_db)):
     db.delete(employee)
     db.commit()
     return {"message": f"Employee {user_id} deleted successfully"}
+
+
+
+

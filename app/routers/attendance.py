@@ -33,6 +33,7 @@ def get_all_logs(
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
 ):
+    
     query = db.query(AttendanceLog)
     if date_from:
         query = query.filter(AttendanceLog.date >= date_from)
@@ -49,6 +50,7 @@ def get_attendance_summary(
     date_to: Optional[date] = Query(None),
     department_id: Optional[int] = Query(None),
 ):
+    
     query = db.query(AttendanceLog, Employee).join(
         Employee, AttendanceLog.user_id == Employee.user_id
     )
@@ -80,7 +82,7 @@ def get_attendance_summary(
             delta        = (clock_out - clock_in).total_seconds() / 3600
             hours_worked = round(delta, 2)
 
-        status = "present" if (clock_in or clock_out) else "absent"
+        status = "present" if (clock_in or clock_out) else "absent" # If there's any punch, we consider them present for that day. This is a common approach in attendance systems to account for missed punches while still recognizing the employee's presence. This way, if an employee forgets to check out but has a valid check-in, we won't mark them as absent. Instead, we can later review such cases and adjust hours worked if necessary based on their shift or typical working hours.
 
         summary.append(AttendanceSummary(
             user_id         = user_id,
