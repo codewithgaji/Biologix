@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Building2, CalendarCheck, Upload, Download,
-  LogOut, Menu, X, Fingerprint, CalendarDays, BarChart2,
+  LogOut, Menu, X, Fingerprint, CalendarDays, BarChart2, Archive
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearAuth } from "@/lib/api";
@@ -17,6 +17,7 @@ const navItems = [
   { label: "Analytics",   path: "/dashboard/analytics",   icon: BarChart2 },  // This is my new section
   { label: "Leaves", path: "/dashboard/leaves", icon: CalendarDays },
   { label: "Holidays", path: "/dashboard/holidays", icon: CalendarDays },
+  { label: "Archive", path: "/dashboard/archive", icon: Archive },
   { label: "Import Data", path: "/dashboard/import", icon: Upload },
   { label: "Export", path: "/dashboard/export", icon: Download },
 ];
