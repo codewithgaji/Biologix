@@ -7,7 +7,7 @@ class PunchStatusEnum(str, enum.Enum):
     check_in  = "check_in"
     check_out = "check_out"
 
-class PunchTypeEnum(str, enum.Enum):
+class PunchTypeEnum(str, enum.Enum):  
     fingerprint = "fingerprint"   # 1
     card        = "card"          # 3
     face        = "face"          # 15
