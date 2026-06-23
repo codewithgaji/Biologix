@@ -42,7 +42,7 @@ function RejectionDialog({
         <div className="bg-destructive/8 border border-destructive/20 rounded-xl p-3">
           <p className="text-xs text-destructive font-medium">What to do:</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Confirm the file is the correct one, rename it exactly as required, then try again.
+            Confirm this is the correct file, rename it exactly as required, then try again.
           </p>
         </div>
 
@@ -54,74 +54,19 @@ function RejectionDialog({
   );
 }
 
-// ─── Validation helpers ───────────────────────────────────────────────────────
-
-/**
- * Reads the first N lines of an attendance .dat file (text format)
- * and checks whether the punch status column matches the expected value.
- *   clock_in  → status column should be "0"
- *   clock_out → status column should be "1"
- *
- * We sample the first 20 non-empty lines to avoid reading the whole file.
- * If the majority don't match, we reject.
- */
-async function validateAttendanceContent(
-  file: File,
-  expectedType: "clock_in" | "clock_out"
-): Promise<{ valid: boolean; reason?: string }> {
-  const expectedStatus = expectedType === "clock_in" ? "0" : "1";
-  const labelMap = { "0": "check-in (0)", "1": "check-out (1)" };
-
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text   = (e.target?.result as string) || "";
-      const lines  = text.split("\n").map((l) => l.trim()).filter(Boolean);
-      const sample = lines.slice(0, 20);
-
-      if (sample.length === 0) {
-        resolve({ valid: false, reason: "The file appears to be empty." });
-        return;
-      }
-
-      let matches   = 0;
-      let mismatches = 0;
-
-      for (const line of sample) {
-        const parts = line.split(/\s+/);
-        if (parts.length < 5) continue; // not enough columns to check
-        const status = parts[4];
-        if (status === expectedStatus) matches++;
-        else if (status === "0" || status === "1") mismatches++;
-      }
-
-      // If we have clear mismatches and no matches, it's the wrong file
-      if (mismatches > 0 && matches === 0) {
-        const foundLabel    = expectedStatus === "0" ? "check-out (1)" : "check-in (0)";
-        const expectedLabel = labelMap[expectedStatus];
-        resolve({
-          valid : false,
-          reason: `This file contains ${foundLabel} records but you're trying to import it as ${expectedType.replace("_", " ")}. The punch status column shows "${expectedStatus === "0" ? "1" : "0"}" but expected "${expectedStatus}" (${expectedLabel}). Please upload the correct file.`,
-        });
-        return;
-      }
-
-      resolve({ valid: true });
-    };
-    reader.onerror = () => resolve({ valid: true }); // don't block on read error
-    reader.readAsText(file);
-  });
-}
-
 // ─── Import Card ──────────────────────────────────────────────────────────────
 function ImportCard({
   title, subtitle, warning, instruction, icon: Icon,
-  onImport, accept, requiredFilename, importType,
+  onImport, accept, requiredFilename,
 }: {
-  title: string; subtitle: string; warning?: string; instruction?: string;
-  icon: any; onImport: (file: File) => Promise<any>; accept: string;
-  requiredFilename: string;                           // exact name required
-  importType?: "clock_in" | "clock_out" | "users";   // for content validation
+  title           : string;
+  subtitle        : string;
+  warning        ?: string;
+  instruction    ?: string;
+  icon            : any;
+  onImport        : (file: File) => Promise<any>;
+  accept          : string;
+  requiredFilename: string;
 }) {
   const [status, setStatus]       = useState<JobStatus>("idle");
   const [result, setResult]       = useState<ImportResult | null>(null);
@@ -158,30 +103,18 @@ function ImportCard({
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    e.target.value = ""; // reset input immediately so same file can be reselected
+    e.target.value = "";
 
-    // ── 1. Exact filename check ──────────────────────────────────────────────
+    // ── Filename check — only validation needed ──────────────────────────────
     if (file.name.toLowerCase() !== requiredFilename.toLowerCase()) {
       setRejection({
         title  : "Wrong filename",
-        message: `Expected a file named exactly "${requiredFilename}" but got "${file.name}". Please rename your file correctly before importing.`,
+        message: `Expected a file named exactly "${requiredFilename}" but received "${file.name}". Please rename your file correctly before importing.`,
       });
       return;
     }
 
-    // ── 2. Content validation for attendance files ───────────────────────────
-    if (importType === "clock_in" || importType === "clock_out") {
-      const check = await validateAttendanceContent(file, importType);
-      if (!check.valid) {
-        setRejection({
-          title  : "Wrong file content",
-          message: check.reason || "The file content does not match the expected import type.",
-        });
-        return;
-      }
-    }
-
-    // ── 3. All good — proceed ────────────────────────────────────────────────
+    // ── All good — proceed ───────────────────────────────────────────────────
     setStatus("uploading");
     setResult(null);
 
@@ -210,6 +143,7 @@ function ImportCard({
   return (
     <>
       <div className="glass-card rounded-xl p-6 flex flex-col gap-3">
+
         {/* Header */}
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-primary/10">
@@ -249,7 +183,8 @@ function ImportCard({
           ${isProcessing
             ? "border-primary/30 cursor-not-allowed"
             : "border-border cursor-pointer hover:border-primary/50"
-          }`}>
+          }`}
+        >
           {isProcessing ? (
             <div className="flex flex-col items-center gap-2">
               {status === "uploading"
@@ -307,7 +242,6 @@ function ImportCard({
         )}
       </div>
 
-      {/* Rejection dialog — rendered outside the card so it overlays correctly */}
       {rejection && (
         <RejectionDialog
           title={rejection.title}
@@ -343,7 +277,6 @@ export default function ImportData() {
             onImport={importUsers}
             accept=".dat"
             requiredFilename="user.dat"
-            importType="users"
           />
         </div>
       </div>
@@ -368,7 +301,6 @@ export default function ImportData() {
             onImport={(file) => importAttendance(file, "clock_in")}
             accept=".dat"
             requiredFilename="clock_in.dat"
-            importType="clock_in"
           />
           <ImportCard
             title="Import Clock-Out"
@@ -378,7 +310,6 @@ export default function ImportData() {
             onImport={(file) => importAttendance(file, "clock_out")}
             accept=".dat"
             requiredFilename="clock_out.dat"
-            importType="clock_out"
           />
         </div>
       </div>
