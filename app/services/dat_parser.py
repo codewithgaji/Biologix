@@ -10,10 +10,12 @@ PUNCH_TYPE_MAP = {
     "15": PunchTypeEnum.face,
 }
 
+
 PUNCH_STATUS_MAP = {
     "0": PunchStatusEnum.check_in,
     "1": PunchStatusEnum.check_out,
 }
+
 
 
 def parse_user_dat(file_bytes: bytes, db: Session) -> dict:
@@ -71,7 +73,7 @@ def parse_user_dat(file_bytes: bytes, db: Session) -> dict:
 def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
     lines = file_bytes.decode("utf-8", errors="ignore").splitlines()
 
-    # ✅ Load ALL employees once — one query instead of one per line
+    # Load ALL employees once, one query instead of one per line
     all_employees = db.query(Employee).all()
     employee_map = {emp.badge_number: emp for emp in all_employees}
 
@@ -98,7 +100,7 @@ def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
                 raw_status   = parts[4] if len(parts) > 4 else "1"
                 punch_status = PUNCH_STATUS_MAP.get(raw_status, PunchStatusEnum.check_in)
 
-            # ✅ Dict lookup instead of DB query
+            # Dict lookup instead of DB query
             employee = employee_map.get(badge_number)
             if not employee:
                 skipped += 1
@@ -117,7 +119,7 @@ def parse_attlog_dat(file_bytes: bytes, db: Session, force_status: str = None):
             errors += 1
             continue
 
-    # ✅ Bulk insert instead of one-by-one
+    # Bulk insert instead of one-by-one
     if records_to_insert:
         db.bulk_save_objects(records_to_insert)
 

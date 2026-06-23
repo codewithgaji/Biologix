@@ -13,8 +13,6 @@ router = APIRouter(
 
 # ✅ In-memory job tracker
 import_jobs: dict = {}
-
-
 def run_user_import(job_id: str, contents: bytes, db: Session):
     try:
         import_jobs[job_id] = {"status": "processing"}
@@ -64,6 +62,7 @@ async def import_users(
     background_tasks.add_task(run_user_import, job_id, contents, db)
 
     return {"job_id": job_id, "message": "User import started"}
+
 
 
 @router.post("/attendance")

@@ -14,7 +14,7 @@ import {
 
 const PAGE_SIZE = 20;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://biologixbackend.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 function getToken() { return localStorage.getItem("biologix_token"); }
 
 async function createEmployee(payload: Record<string, any>) {

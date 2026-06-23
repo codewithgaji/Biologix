@@ -1,10 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ||"http://localhost:8000";
-
-
-
-
-//"https://biologixbackend.onrender.com";
-
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 
 
@@ -94,6 +88,25 @@ export async function bulkUpdateDepartment(userIds: string[], departmentId: stri
   });
 }
 
+export async function deleteEmployee(badgeNumber: string, retentionDays: number = 30) {
+  return request<any>(`/employees/${badgeNumber}?retention_days=${retentionDays}`, {
+    method: 'DELETE',
+  });
+}
+
+// Archive
+export async function getArchivedEmployees() {
+  return request<any[]>('/archive/');
+}
+
+export async function getArchivedEmployeeDetail(archiveId: number) {
+  return request<any>(`/archive/${archiveId}`);
+}
+
+export async function triggerManualPurge() {
+  return request<any>('/archive/purge', { method: 'DELETE' });
+}
+
 // Departments
 export async function getDepartments() {
   return request<any[]>('/departments/');
@@ -162,7 +175,7 @@ export async function importAttendance(file: File, type: "clock_in" | "clock_out
   });
 }
 
-// Export — fetches CSV/Excel and triggers browser download
+// Export
 export async function exportAttendance(
   params: Record<string, string | number>,
   filename?: string
@@ -181,7 +194,6 @@ export async function exportAttendance(
 
   const blob = await res.blob();
 
-  // Derive filename from Content-Disposition header, fallback to param-based name
   const disposition = res.headers.get('content-disposition');
   let downloadName = filename;
   if (!downloadName) {
@@ -195,7 +207,6 @@ export async function exportAttendance(
     }
   }
 
-  // Trigger download
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

@@ -1,21 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { getEmployees } from "@/lib/api";
 import {
   CalendarDays, Users, User, Trash2, Plus, Search,
-  CheckCircle2, XCircle, ChevronDown, X, FileText
+  CheckCircle2, XCircle, X, FileText, ChevronDown, ChevronUp
 } from "lucide-react";
 
-
-
-// api calls 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-
-
-
-//"http://localhost:8000";
-
 function getToken() { return localStorage.getItem("biologix_token"); }
 
 async function apiFetch(path: string, options: RequestInit = {}) {
@@ -33,10 +26,6 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-async function searchEmployeeByBadge(badge: string) {
-  return apiFetch(`/leaves/search/employee?badge=${encodeURIComponent(badge)}`);
-}
-
 async function getLeaves(params: Record<string, string> = {}) {
   const q = new URLSearchParams(params).toString();
   return apiFetch(`/leaves/${q ? "?" + q : ""}`);
@@ -50,7 +39,7 @@ async function deleteLeave(id: number) {
   return apiFetch(`/leaves/${id}`, { method: "DELETE" });
 }
 
-// helpers 
+// ── helpers ───────────────────────────────────────────────────────────────────
 function formatDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
@@ -58,17 +47,26 @@ function formatDate(d: string) {
 }
 
 function dayCount(from: string, to: string) {
-  const a = new Date(from).getTime();
-  const b = new Date(to).getTime();
-  return Math.floor((b - a) / 86400000) + 1;
+  return Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 86400000) + 1;
 }
 
-// ── types 
-interface EmployeeResult {
+function getMonthLabel(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
+    month: "long", year: "numeric",
+  });
+}
+
+function getMonthKey(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00");
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+// ── types ─────────────────────────────────────────────────────────────────────
+interface EmployeeOption {
   user_id     : number;
   badge_number: string;
   name        : string;
-  department  : string | null;
+  department_id?: number | null;
 }
 
 interface LeaveRecord {
@@ -84,32 +82,27 @@ interface LeaveRecord {
   created_at    : string;
 }
 
-// ── employee search dropdown 
+// ── employee search (client-side from employees list) ─────────────────────────
 function EmployeeSearch({
-  onSelect,
-  selected,
-  onClear,
+  employees, onSelect, selected, onClear,
 }: {
-  onSelect: (emp: EmployeeResult) => void;
-  selected: EmployeeResult | null;
-  onClear: () => void;
+  employees: EmployeeOption[];
+  onSelect : (emp: EmployeeOption) => void;
+  selected : EmployeeOption | null;
+  onClear  : () => void;
 }) {
-  const [query, setQuery]     = useState("");
-  const [results, setResults] = useState<EmployeeResult[]>([]);
-  const [open, setOpen]       = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [open, setOpen]   = useState(false);
 
-  const search = async (val: string) => {
-    setQuery(val);
-    if (val.length < 1) { setResults([]); setOpen(false); return; }
-    setLoading(true);
-    try {
-      const data = await searchEmployeeByBadge(val);
-      setResults(data || []);
-      setOpen(true);
-    } catch { setResults([]); }
-    finally { setLoading(false); }
-  };
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    return employees.filter(
+      (e) =>
+        e.name.toLowerCase().includes(q) ||
+        String(e.badge_number).includes(q)
+    ).slice(0, 8);
+  }, [query, employees]);
 
   if (selected) {
     return (
@@ -133,18 +126,20 @@ function EmployeeSearch({
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by badge number or name..."
+          placeholder="Search by name or badge number..."
           value={query}
-          onChange={(e) => search(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
           className="pl-9"
         />
       </div>
-      {open && results.length > 0 && (
+      {open && query.trim().length > 0 && (
         <div className="absolute z-20 w-full mt-1 rounded-xl border border-border bg-background shadow-xl overflow-hidden">
-          {results.map((emp) => (
+          {results.length > 0 ? results.map((emp) => (
             <button
               key={emp.user_id}
-              onClick={() => { onSelect(emp); setOpen(false); setQuery(""); }}
+              onMouseDown={() => { onSelect(emp); setQuery(""); setOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors text-left"
             >
               <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
@@ -152,31 +147,25 @@ function EmployeeSearch({
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">{emp.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  #{emp.badge_number}{emp.department ? ` · ${emp.department}` : ""}
-                </p>
+                <p className="text-xs text-muted-foreground font-mono">#{emp.badge_number}</p>
               </div>
             </button>
-          ))}
-        </div>
-      )}
-      {open && results.length === 0 && !loading && (
-        <div className="absolute z-20 w-full mt-1 rounded-xl border border-border bg-background shadow-xl px-4 py-3 text-sm text-muted-foreground">
-          No employees found.
+          )) : (
+            <div className="px-4 py-3 text-sm text-muted-foreground">No employees found.</div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ── leave card 
+// ── leave card ────────────────────────────────────────────────────────────────
 function LeaveCard({ leave, onDelete }: { leave: LeaveRecord; onDelete: () => void }) {
   const isPaid = leave.leave_type === "paid";
   const days   = dayCount(leave.date_from, leave.date_to);
 
   return (
     <div className="glass-card rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4">
-      {/* Type badge */}
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
         isPaid ? "bg-green-500/15" : "bg-orange-500/15"
       }`}>
@@ -186,7 +175,6 @@ function LeaveCard({ leave, onDelete }: { leave: LeaveRecord; onDelete: () => vo
         }
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -226,7 +214,6 @@ function LeaveCard({ leave, onDelete }: { leave: LeaveRecord; onDelete: () => vo
         )}
       </div>
 
-      {/* Delete */}
       <button
         onClick={onDelete}
         className="self-start sm:self-center p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
@@ -237,28 +224,94 @@ function LeaveCard({ leave, onDelete }: { leave: LeaveRecord; onDelete: () => vo
   );
 }
 
-// ── main page 
+// ── month group ───────────────────────────────────────────────────────────────
+function MonthGroup({
+  monthKey, label, leaves, onDelete,
+}: {
+  monthKey: string;
+  label   : string;
+  leaves  : LeaveRecord[];
+  onDelete: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const paid   = leaves.filter((l) => l.leave_type === "paid").length;
+  const unpaid = leaves.filter((l) => l.leave_type === "unpaid").length;
+
+  return (
+    <div className="space-y-2">
+      {/* Month header — clickable to collapse */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-xl hover:bg-secondary/40 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <CalendarDays className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-foreground text-sm">{label}</span>
+          <div className="flex items-center gap-1.5">
+            {paid > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 font-medium">
+                {paid} paid
+              </span>
+            )}
+            {unpaid > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-500 font-medium">
+                {unpaid} unpaid
+              </span>
+            )}
+          </div>
+        </div>
+        {open
+          ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        }
+      </button>
+
+      {/* Leave cards for this month */}
+      {open && (
+        <div className="space-y-2 pl-2">
+          {leaves.map((leave) => (
+            <LeaveCard
+              key={leave.id}
+              leave={leave}
+              onDelete={() => onDelete(leave.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── main page ─────────────────────────────────────────────────────────────────
 export default function Leaves() {
-  const [leaves, setLeaves]           = useState<LeaveRecord[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [submitting, setSubmitting]   = useState(false);
-  const [showForm, setShowForm]       = useState(false);
+  const [leaves, setLeaves]         = useState<LeaveRecord[]>([]);
+  const [employees, setEmployees]   = useState<EmployeeOption[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [showForm, setShowForm]     = useState(false);
 
   // form state
-  const [appliesToAll, setAppliesToAll]   = useState(true);
-  const [selectedEmp, setSelectedEmp]     = useState<EmployeeResult | null>(null);
-  const [leaveType, setLeaveType]         = useState<"paid" | "unpaid">("paid");
-  const [dateFrom, setDateFrom]           = useState("");
-  const [dateTo, setDateTo]               = useState("");
-  const [description, setDescription]     = useState("");
+  const [appliesToAll, setAppliesToAll] = useState(true);
+  const [selectedEmp, setSelectedEmp]   = useState<EmployeeOption | null>(null);
+  const [leaveType, setLeaveType]       = useState<"paid" | "unpaid">("paid");
+  const [dateFrom, setDateFrom]         = useState("");
+  const [dateTo, setDateTo]             = useState("");
+  const [description, setDescription]   = useState("");
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await getLeaves();
-      setLeaves(data || []);
-    } catch { toast.error("Failed to load leaves"); }
-    finally { setLoading(false); }
+      const [leavesData, empsData] = await Promise.all([
+        getLeaves(),
+        getEmployees(),
+      ]);
+      setLeaves(leavesData || []);
+      setEmployees(empsData || []);
+    } catch {
+      toast.error("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -274,9 +327,9 @@ export default function Leaves() {
   };
 
   const handleSubmit = async () => {
-    if (!dateFrom || !dateTo) { toast.error("Please select a date range"); return; }
-    if (!appliesToAll && !selectedEmp) { toast.error("Please select an employee"); return; }
-    if (dateTo < dateFrom) { toast.error("End date must be after start date"); return; }
+    if (!dateFrom || !dateTo)              { toast.error("Please select a date range"); return; }
+    if (!appliesToAll && !selectedEmp)     { toast.error("Please select an employee"); return; }
+    if (dateTo < dateFrom)                 { toast.error("End date must be after start date"); return; }
 
     setSubmitting(true);
     try {
@@ -287,9 +340,7 @@ export default function Leaves() {
         date_to       : dateTo,
         description   : description || null,
       };
-      if (!appliesToAll && selectedEmp) {
-        payload.user_id = selectedEmp.user_id;
-      }
+      if (!appliesToAll && selectedEmp) payload.user_id = selectedEmp.user_id;
       await createLeave(payload);
       toast.success("Leave created successfully");
       resetForm();
@@ -309,8 +360,19 @@ export default function Leaves() {
     } catch { toast.error("Failed to delete leave"); }
   };
 
-  const paidLeaves   = leaves.filter((l) => l.leave_type === "paid");
-  const unpaidLeaves = leaves.filter((l) => l.leave_type === "unpaid");
+  // Group leaves by month of date_from, newest first
+  const groupedByMonth = useMemo(() => {
+    const map = new Map<string, LeaveRecord[]>();
+    const sorted = [...leaves].sort(
+      (a, b) => new Date(b.date_from).getTime() - new Date(a.date_from).getTime()
+    );
+    for (const leave of sorted) {
+      const key = getMonthKey(leave.date_from);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(leave);
+    }
+    return map;
+  }, [leaves]);
 
   return (
     <div className="space-y-6">
@@ -350,8 +412,7 @@ export default function Leaves() {
                     : "bg-secondary/50 text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
-                <Users className="h-4 w-4" />
-                All Employees
+                <Users className="h-4 w-4" /> All Employees
               </button>
               <button
                 onClick={() => setAppliesToAll(false)}
@@ -361,17 +422,17 @@ export default function Leaves() {
                     : "bg-secondary/50 text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
-                <User className="h-4 w-4" />
-                Specific Employee
+                <User className="h-4 w-4" /> Specific Employee
               </button>
             </div>
           </div>
 
-          {/* Employee search — only when specific */}
+          {/* Employee search — client-side from loaded employees */}
           {!appliesToAll && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Employee</p>
               <EmployeeSearch
+                employees={employees}
                 selected={selectedEmp}
                 onSelect={setSelectedEmp}
                 onClear={() => setSelectedEmp(null)}
@@ -391,8 +452,7 @@ export default function Leaves() {
                     : "bg-secondary/50 text-muted-foreground border-border hover:border-green-500/30"
                 }`}
               >
-                <CheckCircle2 className="h-4 w-4" />
-                Paid Leave
+                <CheckCircle2 className="h-4 w-4" /> Paid Leave
               </button>
               <button
                 onClick={() => setLeaveType("unpaid")}
@@ -402,8 +462,7 @@ export default function Leaves() {
                     : "bg-secondary/50 text-muted-foreground border-border hover:border-orange-500/30"
                 }`}
               >
-                <XCircle className="h-4 w-4" />
-                Unpaid Leave
+                <XCircle className="h-4 w-4" /> Unpaid Leave
               </button>
             </div>
           </div>
@@ -454,12 +513,7 @@ export default function Leaves() {
             />
           </div>
 
-          {/* Submit */}
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="w-full gap-2"
-          >
+          <Button onClick={handleSubmit} disabled={submitting} className="w-full gap-2">
             <CalendarDays className="h-4 w-4" />
             {submitting ? "Creating..." : "Create Leave"}
           </Button>
@@ -480,46 +534,16 @@ export default function Leaves() {
           <p className="text-xs mt-1">Click "New Leave" to create one.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Paid leaves */}
-          {paidLeaves.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <h3 className="text-sm font-semibold text-foreground">
-                  Paid Leaves
-                  <span className="ml-2 text-xs text-muted-foreground font-normal">({paidLeaves.length})</span>
-                </h3>
-              </div>
-              {paidLeaves.map((leave) => (
-                <LeaveCard
-                  key={leave.id}
-                  leave={leave}
-                  onDelete={() => handleDelete(leave.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Unpaid leaves */}
-          {unpaidLeaves.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <XCircle className="h-4 w-4 text-orange-500" />
-                <h3 className="text-sm font-semibold text-foreground">
-                  Unpaid Leaves
-                  <span className="ml-2 text-xs text-muted-foreground font-normal">({unpaidLeaves.length})</span>
-                </h3>
-              </div>
-              {unpaidLeaves.map((leave) => (
-                <LeaveCard
-                  key={leave.id}
-                  leave={leave}
-                  onDelete={() => handleDelete(leave.id)}
-                />
-              ))}
-            </div>
-          )}
+        <div className="space-y-4">
+          {Array.from(groupedByMonth.entries()).map(([key, monthLeaves]) => (
+            <MonthGroup
+              key={key}
+              monthKey={key}
+              label={getMonthLabel(monthLeaves[0].date_from)}
+              leaves={monthLeaves}
+              onDelete={handleDelete}
+            />
+          ))}
         </div>
       )}
     </div>

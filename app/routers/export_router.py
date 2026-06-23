@@ -14,7 +14,7 @@ from db.models.leave import Leave, LeaveTypeEnum
 from core.security.dependencies import get_current_admin
 
 try:
-    import openpyxl
+    import openpyxl # This is used for excel file creation and manipulation. We use openpyxl because it allows us to create complex excel files with formatting, formulas, and multiple sheets. It also has good performance for handling large datasets.
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 except ImportError:
@@ -855,7 +855,7 @@ def build_workbook_year(db, year, dept_id=None, user_id=None):
     return wb
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────────────
+# ── Endpoint
 @router.get("/attendance")
 def export_attendance(
     db            : Session        = Depends(get_db),

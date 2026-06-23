@@ -20,3 +20,7 @@ def twoSum(nums: list[int], target: int) -> list[int]:
             return [seen[complement], i]
 
         seen[num] = i               # store current number for future lookups
+
+
+
+
