@@ -11,9 +11,11 @@ import {
   Search, ChevronLeft, ChevronRight,
   Plus, X, Trash2, AlertTriangle, UserPlus
 } from "lucide-react";
+import PermissionGuard from "@/components/PermissionGuard";
+import { useRole } from "@/hooks/useRole";
+import { deleteEmployee as apiDeleteEmployee } from "@/lib/api";
 
 const PAGE_SIZE = 20;
-
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 function getToken() { return localStorage.getItem("biologix_token"); }
 
@@ -34,20 +36,7 @@ async function createEmployee(payload: Record<string, any>) {
   return res.json();
 }
 
-async function deleteEmployee(badgeNumber: string) {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/employees/${badgeNumber}`, {
-    method : "DELETE",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to delete employee" }));
-    throw new Error(err.detail || "Failed to delete employee");
-  }
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const SHIFTS = [
   { value: "morning",   label: "Morning (6AM–2PM)",    hours: 8  },
   { value: "afternoon", label: "Afternoon (2PM–10PM)", hours: 8  },
@@ -67,15 +56,12 @@ function MonthPicker({ month, year, onChange }: {
 }) {
   const now            = new Date();
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
-
   const prev = () => { if (month === 1) onChange(12, year - 1); else onChange(month - 1, year); };
   const next = () => {
     if (isCurrentMonth) return;
     if (month === 12) onChange(1, year + 1); else onChange(month + 1, year);
   };
-
   const label = new Date(year, month - 1, 1).toLocaleString("default", { month: "long", year: "numeric" });
-
   return (
     <div className="flex items-center gap-1">
       <Button variant="ghost" size="icon" onClick={prev} className="h-8 w-8">
@@ -107,7 +93,7 @@ function HoursBar({ actual, expected }: { actual: number; expected: number | nul
   );
 }
 
-// ─── Inline editable text field (used for name AND position) ─────────────────
+// ─── Inline editable text field ───────────────────────────────────────────────
 function InlineEdit({
   value, onSave, placeholder = "Click to edit...", className = ""
 }: {
@@ -115,7 +101,6 @@ function InlineEdit({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState(value);
-
   useEffect(() => { setDraft(value); }, [value]);
 
   if (!editing) {
@@ -128,7 +113,6 @@ function InlineEdit({
       </button>
     );
   }
-
   return (
     <div className="flex items-center gap-1 min-w-[150px]">
       <Input
@@ -169,26 +153,20 @@ function DeleteDialog({
             <p className="text-xs text-muted-foreground">This cannot be undone</p>
           </div>
         </div>
-
         <div className="bg-secondary/50 rounded-xl p-3 text-sm space-y-1">
           <p className="font-medium text-foreground">{employee.name}</p>
           <p className="text-xs text-muted-foreground font-mono">
             Badge #{employee.badge_number} · Machine ID {employee.user_id}
           </p>
         </div>
-
         <p className="text-sm text-muted-foreground">
-          Deleting this employee will remove their profile. Their attendance records will remain in the database but will no longer be linked to a name.
+          Deleting this employee will archive their profile and attendance records.
         </p>
-
         <div className="flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onCancel} disabled={loading}>
-            Cancel
-          </Button>
+          <Button variant="outline" className="flex-1" onClick={onCancel} disabled={loading}>Cancel</Button>
           <Button
             className="flex-1 bg-destructive hover:bg-destructive/90 text-white"
-            onClick={onConfirm}
-            disabled={loading}
+            onClick={onConfirm} disabled={loading}
           >
             {loading ? "Deleting..." : "Delete"}
           </Button>
@@ -206,15 +184,9 @@ function AddEmployeeForm({
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    user_id      : "",
-    badge_number : "",
-    name         : "",
-    position     : "",
-    department_id: "",
-    shift        : "",
-    work_days    : "",
+    user_id: "", badge_number: "", name: "", position: "",
+    department_id: "", shift: "", work_days: "",
   });
-
   const set = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSubmit = async () => {
@@ -253,103 +225,54 @@ function AddEmployeeForm({
           <X className="h-4 w-4" />
         </button>
       </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Machine ID */}
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Machine ID <span className="text-destructive">*</span></p>
-          <Input
-            type="number"
-            placeholder="e.g. 197"
-            value={form.user_id}
-            onChange={(e) => set("user_id", e.target.value)}
-            className="h-8 text-sm"
-          />
+          <Input type="number" placeholder="e.g. 197" value={form.user_id}
+            onChange={(e) => set("user_id", e.target.value)} className="h-8 text-sm" />
         </div>
-
-        {/* Badge Number */}
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Badge Number (Employee ID) <span className="text-destructive">*</span></p>
-          <Input
-            placeholder="e.g. 275"
-            value={form.badge_number}
-            onChange={(e) => set("badge_number", e.target.value)}
-            className="h-8 text-sm"
-          />
+          <p className="text-xs text-muted-foreground">Badge Number <span className="text-destructive">*</span></p>
+          <Input placeholder="e.g. 275" value={form.badge_number}
+            onChange={(e) => set("badge_number", e.target.value)} className="h-8 text-sm" />
         </div>
-
-        {/* Name */}
         <div className="space-y-1 sm:col-span-2">
           <p className="text-xs text-muted-foreground">Full Name <span className="text-destructive">*</span></p>
-          <Input
-            placeholder="e.g. Oladimeji Israel Opeyemi"
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            className="h-8 text-sm"
-          />
+          <Input placeholder="e.g. Oladimeji Israel Opeyemi" value={form.name}
+            onChange={(e) => set("name", e.target.value)} className="h-8 text-sm" />
         </div>
-
-        {/* Position */}
         <div className="space-y-1 sm:col-span-2">
           <p className="text-xs text-muted-foreground">Position <span className="text-muted-foreground/50">(optional)</span></p>
-          <Input
-            placeholder="e.g. Factory Worker, Supervisor"
-            value={form.position}
-            onChange={(e) => set("position", e.target.value)}
-            className="h-8 text-sm"
-          />
+          <Input placeholder="e.g. Factory Worker, Supervisor" value={form.position}
+            onChange={(e) => set("position", e.target.value)} className="h-8 text-sm" />
         </div>
-
-        {/* Department */}
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Department</p>
-          <select
-            value={form.department_id}
-            onChange={(e) => set("department_id", e.target.value)}
-            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border"
-          >
+          <select value={form.department_id} onChange={(e) => set("department_id", e.target.value)}
+            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border">
             <option value="">None</option>
-            {departments.map((d: any) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
+            {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
-
-        {/* Shift */}
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Shift</p>
-          <select
-            value={form.shift}
-            onChange={(e) => set("shift", e.target.value)}
-            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border"
-          >
+          <select value={form.shift} onChange={(e) => set("shift", e.target.value)}
+            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border">
             <option value="">None</option>
-            {SHIFTS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
+            {SHIFTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-
-        {/* Work Days */}
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Work Days</p>
-          <select
-            value={form.work_days}
-            onChange={(e) => set("work_days", e.target.value)}
-            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border"
-          >
+          <select value={form.work_days} onChange={(e) => set("work_days", e.target.value)}
+            className="w-full bg-secondary text-foreground rounded-md px-3 py-1.5 text-sm border border-border">
             <option value="">None</option>
-            {WORK_DAYS.map((w) => (
-              <option key={w.value} value={w.value}>{w.label}</option>
-            ))}
+            {WORK_DAYS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
           </select>
         </div>
       </div>
-
       <div className="flex gap-3 pt-2">
-        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={submitting}>
-          Cancel
-        </Button>
+        <Button variant="outline" className="flex-1" onClick={onCancel} disabled={submitting}>Cancel</Button>
         <Button className="flex-1 gap-2" onClick={handleSubmit} disabled={submitting}>
           <UserPlus className="h-4 w-4" />
           {submitting ? "Adding..." : "Add Employee"}
@@ -362,15 +285,27 @@ function AddEmployeeForm({
 // ─── Employee Row ─────────────────────────────────────────────────────────────
 const EmployeeRow = memo(function EmployeeRow({
   emp, monthly, hoursLoading, isSelected, departments,
-  onToggle, onFieldUpdate, onDelete,
+  onToggle, onFieldUpdate, onDelete, onPermissionBlock,
+  canEdit, isAdmin,
 }: {
   emp: any; monthly: any; hoursLoading: boolean; isSelected: boolean;
   departments: any[];
-  onToggle     : (id: number) => void;
-  onFieldUpdate: (userId: number, field: string, value: string) => void;
-  onDelete     : (emp: any) => void;
+  onToggle         : (id: number) => void;
+  onFieldUpdate    : (userId: number, field: string, value: string) => void;
+  onDelete         : (emp: any) => void;
+  onPermissionBlock: (role: "editor" | "payroll" | "admin") => void;
+  canEdit          : boolean;
+  isAdmin          : boolean;
 }) {
   const id = emp.user_id;
+
+  // Guard wrapper — shows popup if no permission, fires action if allowed
+  const guard = (role: "editor" | "admin", action: () => void) => {
+    if (role === "editor" && !canEdit) { onPermissionBlock("editor"); return; }
+    if (role === "admin"  && !isAdmin) { onPermissionBlock("admin");  return; }
+    action();
+  };
+
   return (
     <tr className="border-b border-border/50 hover:bg-secondary/30 group">
       <td className="px-3 py-3">
@@ -379,21 +314,21 @@ const EmployeeRow = memo(function EmployeeRow({
       <td className="px-3 py-3 font-mono text-xs">{emp.badge_number || "—"}</td>
       <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{emp.user_id}</td>
 
-      {/* Name — inline editable */}
+      {/* Name */}
       <td className="px-3 py-3 font-medium">
         <InlineEdit
           value={emp.name || ""}
-          onSave={(val) => onFieldUpdate(id, "name", val)}
+          onSave={(val) => guard("editor", () => onFieldUpdate(id, "name", val))}
           placeholder="Enter name..."
           className="font-medium"
         />
       </td>
 
-      {/* Position — inline editable */}
+      {/* Position */}
       <td className="px-3 py-3">
         <InlineEdit
           value={emp.position || ""}
-          onSave={(val) => onFieldUpdate(id, "position", val)}
+          onSave={(val) => guard("editor", () => onFieldUpdate(id, "position", val))}
           placeholder="Add position..."
         />
       </td>
@@ -402,13 +337,11 @@ const EmployeeRow = memo(function EmployeeRow({
       <td className="px-3 py-3">
         <select
           value={emp.department_id || ""}
-          onChange={(e) => onFieldUpdate(id, "department_id", e.target.value)}
+          onChange={(e) => guard("editor", () => onFieldUpdate(id, "department_id", e.target.value))}
           className="bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border min-w-[110px]"
         >
           <option value="">None</option>
-          {departments.map((d: any) => (
-            <option key={d.id} value={d.id}>{d.name}</option>
-          ))}
+          {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
       </td>
 
@@ -416,13 +349,11 @@ const EmployeeRow = memo(function EmployeeRow({
       <td className="px-3 py-3">
         <select
           value={emp.shift || ""}
-          onChange={(e) => onFieldUpdate(id, "shift", e.target.value)}
+          onChange={(e) => guard("editor", () => onFieldUpdate(id, "shift", e.target.value))}
           className="bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border min-w-[130px]"
         >
           <option value="">None</option>
-          {SHIFTS.map((s) => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
+          {SHIFTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </td>
 
@@ -430,13 +361,11 @@ const EmployeeRow = memo(function EmployeeRow({
       <td className="px-3 py-3">
         <select
           value={emp.work_days || ""}
-          onChange={(e) => onFieldUpdate(id, "work_days", e.target.value)}
+          onChange={(e) => guard("editor", () => onFieldUpdate(id, "work_days", e.target.value))}
           className="bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border"
         >
           <option value="">None</option>
-          {WORK_DAYS.map((w) => (
-            <option key={w.value} value={w.value}>{w.label}</option>
-          ))}
+          {WORK_DAYS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
         </select>
       </td>
 
@@ -470,7 +399,7 @@ const EmployeeRow = memo(function EmployeeRow({
       {/* Delete */}
       <td className="px-3 py-3">
         <button
-          onClick={() => onDelete(emp)}
+          onClick={() => guard("admin", () => onDelete(emp))}
           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
           title="Delete employee"
         >
@@ -484,22 +413,33 @@ const EmployeeRow = memo(function EmployeeRow({
 // ─── Employee Mobile Card ─────────────────────────────────────────────────────
 const EmployeeMobileCard = memo(function EmployeeMobileCard({
   emp, monthly, hoursLoading, isSelected, departments,
-  onToggle, onFieldUpdate, onDelete,
+  onToggle, onFieldUpdate, onDelete, onPermissionBlock,
+  canEdit, isAdmin,
 }: {
   emp: any; monthly: any; hoursLoading: boolean; isSelected: boolean;
   departments: any[];
-  onToggle     : (id: number) => void;
-  onFieldUpdate: (userId: number, field: string, value: string) => void;
-  onDelete     : (emp: any) => void;
+  onToggle         : (id: number) => void;
+  onFieldUpdate    : (userId: number, field: string, value: string) => void;
+  onDelete         : (emp: any) => void;
+  onPermissionBlock: (role: "editor" | "payroll" | "admin") => void;
+  canEdit          : boolean;
+  isAdmin          : boolean;
 }) {
   const id = emp.user_id;
+
+  const guard = (role: "editor" | "admin", action: () => void) => {
+    if (role === "editor" && !canEdit) { onPermissionBlock("editor"); return; }
+    if (role === "admin"  && !isAdmin) { onPermissionBlock("admin");  return; }
+    action();
+  };
+
   return (
     <div className="glass-card rounded-xl p-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <InlineEdit
             value={emp.name || ""}
-            onSave={(val) => onFieldUpdate(id, "name", val)}
+            onSave={(val) => guard("editor", () => onFieldUpdate(id, "name", val))}
             placeholder="Enter name..."
             className="font-semibold text-sm"
           />
@@ -510,7 +450,7 @@ const EmployeeMobileCard = memo(function EmployeeMobileCard({
         <div className="flex items-center gap-2 shrink-0">
           <Checkbox checked={isSelected} onCheckedChange={() => onToggle(id)} />
           <button
-            onClick={() => onDelete(emp)}
+            onClick={() => guard("admin", () => onDelete(emp))}
             className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -523,14 +463,14 @@ const EmployeeMobileCard = memo(function EmployeeMobileCard({
           <p className="text-xs text-muted-foreground mb-1">Position</p>
           <InlineEdit
             value={emp.position || ""}
-            onSave={(val) => onFieldUpdate(id, "position", val)}
+            onSave={(val) => guard("editor", () => onFieldUpdate(id, "position", val))}
             placeholder="Add position..."
           />
         </div>
         <div>
           <p className="text-xs text-muted-foreground mb-1">Department</p>
           <select value={emp.department_id || ""}
-            onChange={(e) => onFieldUpdate(id, "department_id", e.target.value)}
+            onChange={(e) => guard("editor", () => onFieldUpdate(id, "department_id", e.target.value))}
             className="w-full bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border">
             <option value="">None</option>
             {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -539,7 +479,7 @@ const EmployeeMobileCard = memo(function EmployeeMobileCard({
         <div>
           <p className="text-xs text-muted-foreground mb-1">Shift</p>
           <select value={emp.shift || ""}
-            onChange={(e) => onFieldUpdate(id, "shift", e.target.value)}
+            onChange={(e) => guard("editor", () => onFieldUpdate(id, "shift", e.target.value))}
             className="w-full bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border">
             <option value="">None</option>
             {SHIFTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -548,7 +488,7 @@ const EmployeeMobileCard = memo(function EmployeeMobileCard({
         <div>
           <p className="text-xs text-muted-foreground mb-1">Work Days</p>
           <select value={emp.work_days || ""}
-            onChange={(e) => onFieldUpdate(id, "work_days", e.target.value)}
+            onChange={(e) => guard("editor", () => onFieldUpdate(id, "work_days", e.target.value))}
             className="w-full bg-secondary text-foreground rounded px-2 py-1 text-xs border border-border">
             <option value="">None</option>
             {WORK_DAYS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
@@ -578,6 +518,12 @@ const EmployeeMobileCard = memo(function EmployeeMobileCard({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Employees() {
   const now = new Date();
+
+  // ── Role ──────────────────────────────────────────────────────────────────
+  const { canEdit, isAdmin } = useRole();
+  const [permissionBlock, setPermissionBlock] = useState<"editor" | "payroll" | "admin" | null>(null);
+
+  // ── State ─────────────────────────────────────────────────────────────────
   const [month, setMonth]               = useState(now.getMonth() + 1);
   const [year, setYear]                 = useState(now.getFullYear());
   const [employees, setEmployees]       = useState<any[]>([]);
@@ -668,6 +614,7 @@ export default function Employees() {
 
   const handleBulk = useCallback(async () => {
     if (selected.size === 0) return;
+    if (!canEdit) { setPermissionBlock("editor"); return; }
     try {
       const promises: Promise<any>[] = [];
       if (bulkDept) promises.push(bulkUpdateDepartment(Array.from(selected).map(String), bulkDept));
@@ -683,13 +630,13 @@ export default function Employees() {
       setBulkDept(""); setBulkShift(""); setBulkWorkDays("");
       loadEmployees(); loadHours(month, year);
     } catch { toast.error("Bulk update failed"); }
-  }, [selected, bulkDept, bulkShift, bulkWorkDays, loadEmployees, loadHours, month, year]);
+  }, [selected, bulkDept, bulkShift, bulkWorkDays, canEdit, loadEmployees, loadHours, month, year]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteEmployee(String(deleteTarget.badge_number));
+      await apiDeleteEmployee(String(deleteTarget.badge_number));
       toast.success(`${deleteTarget.name} deleted`);
       setDeleteTarget(null);
       loadEmployees();
@@ -705,6 +652,10 @@ export default function Employees() {
     if (monthly) return monthly;
     return { actual_hours: 0, days_present: 0, expected_days: null, expected_hours: null };
   }, [monthlyMap]);
+
+  const handlePermissionBlock = useCallback((role: "editor" | "payroll" | "admin") => {
+    setPermissionBlock(role);
+  }, []);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>
@@ -723,7 +674,10 @@ export default function Employees() {
           <MonthPicker month={month} year={year} onChange={(m, y) => { setMonth(m); setYear(y); }} />
           <Button
             size="sm" className="gap-2"
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => {
+              if (!canEdit) { setPermissionBlock("editor"); return; }
+              setShowAddForm(!showAddForm);
+            }}
             variant={showAddForm ? "outline" : "default"}
           >
             {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
@@ -732,8 +686,8 @@ export default function Employees() {
         </div>
       </div>
 
-      {/* Add Employee Form */}
-      {showAddForm && (
+      {/* Add Employee Form — only shown if canEdit */}
+      {showAddForm && canEdit && (
         <AddEmployeeForm
           departments={departments}
           onSuccess={() => { setShowAddForm(false); loadEmployees(); }}
@@ -817,6 +771,9 @@ export default function Employees() {
                     onToggle={toggleSelect}
                     onFieldUpdate={handleFieldUpdate}
                     onDelete={setDeleteTarget}
+                    onPermissionBlock={handlePermissionBlock}
+                    canEdit={canEdit}
+                    isAdmin={isAdmin}
                   />
                 ))}
               </tbody>
@@ -838,6 +795,9 @@ export default function Employees() {
             onToggle={toggleSelect}
             onFieldUpdate={handleFieldUpdate}
             onDelete={setDeleteTarget}
+            onPermissionBlock={handlePermissionBlock}
+            canEdit={canEdit}
+            isAdmin={isAdmin}
           />
         ))}
       </div>
@@ -866,6 +826,14 @@ export default function Employees() {
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
           loading={deleting}
+        />
+      )}
+
+      {/* Permission popup */}
+      {permissionBlock && (
+        <PermissionGuard
+          requiredRole={permissionBlock}
+          onClose={() => setPermissionBlock(null)}
         />
       )}
     </div>

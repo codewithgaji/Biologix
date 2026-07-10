@@ -6,26 +6,29 @@ from datetime import date, timedelta
 from collections import defaultdict
 import calendar
 import io
+
 from db.database import get_db
 from db.models.attendance import AttendanceLog, PunchStatusEnum
 from db.models.employee import Employee
 from db.models.department import Department
 from db.models.leave import Leave, LeaveTypeEnum
-from core.security.dependencies import get_current_admin
+from db.models.admin_user import AdminUser
+from db.models.audit_log import AuditAction
+from core.security.dependencies import get_current_payroll
+from core.audit import log_critical
 
 try:
-    import openpyxl # This is used for excel file creation and manipulation. We use openpyxl because it allows us to create complex excel files with formatting, formulas, and multiple sheets. It also has good performance for handling large datasets.
+    import openpyxl
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 except ImportError:
     raise RuntimeError("openpyxl is not installed. Run: pip install openpyxl")
 
+# ─── Router ───────────────────────────────────────────────────────────────────
 router = APIRouter(
     prefix="/export",
     tags=["Export"],
-    dependencies=[Depends(get_current_admin)]
 )
-
 # ── Palette ───────────────────────────────────────────────────────────────────
 NAVY             = "1B2A4A"
 DEPT_BLUE        = "1F4E79"   # department header fill
@@ -858,32 +861,54 @@ def build_workbook_year(db, year, dept_id=None, user_id=None):
 # ── Endpoint
 @router.get("/attendance")
 def export_attendance(
-    db            : Session        = Depends(get_db),
-    date_from     : Optional[date] = Query(None),
-    date_to       : Optional[date] = Query(None),
-    month         : Optional[int]  = Query(None, ge=1, le=12),
-    year          : Optional[int]  = Query(None, ge=2000),
-    department_id : Optional[int]  = Query(None),
-    user_id       : Optional[int]  = Query(None),
+    db             : Session        = Depends(get_db),
+    current_payroll: AdminUser      = Depends(get_current_payroll),
+    date_from      : Optional[date] = Query(None),
+    date_to        : Optional[date] = Query(None),
+    month          : Optional[int]  = Query(None, ge=1, le=12),
+    year           : Optional[int]  = Query(None, ge=2000),
+    department_id  : Optional[int]  = Query(None),
+    user_id        : Optional[int]  = Query(None),
 ):
     if year and not month and not date_from:
         wb       = build_workbook_year(db, year, department_id, user_id)
         filename = f"attendance_{year}.xlsx"
+        period   = str(year)
     elif month and year:
         wb       = build_workbook_monthly(db, year, month, department_id, user_id)
         filename = f"attendance_{year}_{str(month).zfill(2)}.xlsx"
+        period   = f"{year}-{str(month).zfill(2)}"
     else:
         if not date_from or not date_to:
             raise HTTPException(
-                status_code=400,
-                detail="Provide date_from+date_to, month+year, or year"
+                status_code = 400,
+                detail      = "Provide date_from+date_to, month+year, or year",
             )
         wb       = build_workbook_range(db, date_from, date_to, department_id, user_id)
         filename = f"attendance_{date_from}_to_{date_to}.xlsx"
+        period   = f"{date_from} to {date_to}"
+
+    # ── Audit log — critical ──────────────────────────────────────────────────
+    log_critical(
+        db           = db,
+        action       = AuditAction.data_exported,
+        performed_by = current_payroll.email,
+        target_type  = "export",
+        target_id    = filename,
+        target_label = filename,
+        new_value    = {
+            "period"       : period,
+            "department_id": department_id,
+            "user_id"      : user_id,
+            "filename"     : filename,
+        },
+    )
+    db.commit()
 
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
+
     return StreamingResponse(
         output,
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

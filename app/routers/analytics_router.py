@@ -23,12 +23,12 @@ from db.models.attendance import AttendanceLog, PunchStatusEnum
 from db.models.employee import Employee
 from db.models.department import Department
 from db.models.holiday import Holiday
-from core.security.dependencies import get_current_admin
+from core.security.dependencies import get_current_user
 
 router = APIRouter(
     prefix="/analytics",
     tags=["Analytics"],
-    dependencies=[Depends(get_current_admin)]
+    dependencies=[Depends(get_current_user)]
 )
 
 # ── Shift configuration 

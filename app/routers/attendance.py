@@ -12,11 +12,12 @@ from db.models.holiday import Holiday
 from db.schemas.attendance import AttendanceResponse, AttendanceSummary
 from core.security.dependencies import get_current_admin
 from collections import defaultdict
+from core.security.dependencies import get_current_user
 
 router = APIRouter(
     prefix="/attendance",
     tags=["Attendance"],
-    dependencies=[Depends(get_current_admin)]
+    dependencies=[Depends(get_current_user)] # All attendance endpoints require at least a viewer role
 )
 
 SHIFT_HOURS = {
