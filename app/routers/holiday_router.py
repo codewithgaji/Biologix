@@ -4,12 +4,12 @@ from typing import List
 from db.database import get_db
 from db.models.holiday import Holiday
 from db.schemas.holiday import HolidayCreate, HolidayResponse
-from core.security.dependencies import get_current_admin
+from core.security.dependencies import get_current_user
 
 router = APIRouter(
     prefix="/holidays",
     tags=["Holidays"],
-    dependencies=[Depends(get_current_admin)]
+    dependencies=[Depends(get_current_user)]  # All holiday endpoints require at least a viewer role
 )
 
 

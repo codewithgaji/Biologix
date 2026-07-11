@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 from db.database import get_db
 from db.models.archive import ArchivedEmployee, ArchivedAttendanceLog
 from db.schemas.archive import ArchivedEmployeeResponse, ArchivedEmployeeSummary
-from core.security.dependencies import get_current_admin
+from core.security.dependencies import get_current_user
 
 router = APIRouter(
     prefix="/archive",
     tags=["Archive"],
-    dependencies=[Depends(get_current_admin)]
+    dependencies=[Depends(get_current_user)]
 )
 
 

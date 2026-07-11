@@ -23,14 +23,20 @@ export default function Departments() {
   const [confirmDelete, setConfirmDelete] = useState<any>(null);
 
   const load = () => {
-    Promise.all([getDepartments(), getEmployees()])
-      .then(([depts, emps]) => {
-        setDepartments(depts || []);
-        setEmployees(emps || []);
-      })
-      .catch(() => toast.error("Failed to load"))
-      .finally(() => setLoading(false));
-  };
+  Promise.all([getDepartments(), getEmployees()])
+    .then(([depts, emps]) => {
+      // Count employees per department and attach to dept object
+      const empsArray = emps || [];
+      const deptsWithCount = (depts || []).map((d: any) => ({
+        ...d,
+        employee_count: empsArray.filter((e: any) => e.department_id === d.id).length,
+      }));
+      setDepartments(deptsWithCount);
+      setEmployees(empsArray);
+    })
+    .catch(() => toast.error("Failed to load"))
+    .finally(() => setLoading(false));
+};
 
   useEffect(() => { load(); }, []);
 

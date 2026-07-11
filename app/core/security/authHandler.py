@@ -9,9 +9,11 @@ SESSION_DURATION = 60 * 60 * 1  # 1 hours in seconds
 
 class AuthHandler(object):
     @staticmethod
-    def sign_jwt(user_id: int) -> str:
+    def sign_jwt(user_id: int, role: str, status: str) -> str:
         payload = {
             "user_id": user_id,
+            "role": role,
+            "status": status,
             "expires": time.time() + SESSION_DURATION
         }
         token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)

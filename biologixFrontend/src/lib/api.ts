@@ -9,10 +9,12 @@ function getToken(): string | null {
 
 function clearAuth() {
   localStorage.removeItem('biologix_token');
+  localStorage.removeItem('biologix_role');
+  localStorage.removeItem('biologix_name');
+  localStorage.removeItem('biologix_email');
   window.location.href = '/login';
 }
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> || {}),
@@ -32,9 +34,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (res.status === 403) {
+  const err = await res.json().catch(() => ({ detail: 'Forbidden' }));
+  
+  // Only log out if it's genuinely a session/auth issue
+  if (
+    err.detail?.toLowerCase().includes("expired") ||
+    err.detail?.toLowerCase().includes("invalid") ||
+    err.detail?.toLowerCase().includes("no longer exists")
+  ) {
     clearAuth();
     throw new Error('Session expired');
   }
+
+  // Otherwise it's a permissions issue — throw so the component can toast it
+  throw new Error(err.detail || "You don't have permission to perform this action");
+}
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
@@ -50,11 +64,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // Auth
 export async function login(email: string, password: string) {
-  const data = await request<{ token: string }>('/auth/login', {
+  const data = await request<{
+    token    : string;
+    user_id  : number;
+    full_name: string;
+    email    : string;
+    role     : string;
+    status   : string;
+  }>('/admin/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body  : JSON.stringify({ email, password }),
   });
+
   localStorage.setItem('biologix_token', data.token);
+  localStorage.setItem('biologix_role',  data.role);
+  localStorage.setItem('biologix_name',  data.full_name);
+  localStorage.setItem('biologix_email', data.email);
+
   return data;
 }
 
@@ -65,6 +91,36 @@ export async function getImportStatus(jobId: string) {
   if (!res.ok) throw new Error("Failed to fetch status");
   return res.json();
 }
+
+
+
+// ── Admin user management ─────────────────────────────────────────────────────
+export async function getAdminUsers() {
+  return request<any[]>("/admin/users");
+}
+
+export async function approveUser(userId: number, role: string) {
+  return request<any>(`/admin/users/${userId}/approve`, {
+    method: "PATCH",
+    body  : JSON.stringify({ role }),
+  });
+}
+
+export async function changeUserRole(userId: number, role: string) {
+  return request<any>(`/admin/users/${userId}/role`, {
+    method: "PATCH",
+    body  : JSON.stringify({ role }),
+  });
+}
+
+export async function suspendUser(userId: number) {
+  return request<any>(`/admin/users/${userId}/suspend`, { method: "PATCH" });
+}
+
+export async function reactivateUser(userId: number) {
+  return request<any>(`/admin/users/${userId}/reactivate`, { method: "PATCH" });
+}
+
 
 // Employees
 export async function getEmployees() {
@@ -189,8 +245,18 @@ export async function exportAttendance(
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
-  if (res.status === 403) { clearAuth(); throw new Error('Session expired'); }
-  if (!res.ok) throw new Error('Export failed');
+ if (res.status === 403) {
+  const err = await res.json().catch(() => ({ detail: 'Forbidden' }));
+  if (
+    err.detail?.toLowerCase().includes("expired") ||
+    err.detail?.toLowerCase().includes("invalid") ||
+    err.detail?.toLowerCase().includes("no longer exists")
+  ) {
+    clearAuth();
+    throw new Error('Session expired');
+  }
+  throw new Error(err.detail || "You don't have permission to export data");
+}
 
   const blob = await res.blob();
 

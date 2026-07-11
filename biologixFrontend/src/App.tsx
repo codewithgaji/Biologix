@@ -18,6 +18,9 @@ import Leaves from "./pages/dashboard/Leaves";
 import Analytics from "./pages/dashboard/Analytics";
 import ArchivePage from "./pages/dashboard/Archive";
 import ArchiveDetailPage from "./pages/dashboard/ArchiveDetail";
+import PendingApproval from "./pages/PendingApproval";
+import UsersPage from "./pages/dashboard/Users";
+import AuditPage from "./pages/dashboard/Audit";
 
 const queryClient = new QueryClient();
 
@@ -29,6 +32,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/pending-approval" element={<PendingApproval />} />
           <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
             <Route index element={<Overview />} />
             <Route path="employees" element={<Employees />} />
@@ -37,6 +41,8 @@ const App = () => (
             <Route path="analytics" element={<Analytics />} />
             <Route path="archive" element={<ArchivePage />} />
             <Route path="archive/:id" element={<ArchiveDetailPage />} />
+            <Route path="users" element={<UsersPage />} />
+<Route path="audit" element={<AuditPage />} />
             <Route path="import" element={<ImportData />} />
             <Route path="export" element={<Export />} />
             <Route path="holidays" element={<Holidays />} />
