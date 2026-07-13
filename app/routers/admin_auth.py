@@ -295,7 +295,7 @@ def suspend_user(
 # ── Reactivate user — admin only ──────────────────────────────────────────────
 @router.patch("/users/{user_id}/reactivate")
 def reactivate_user(
-    user_id      : int,
+    user_id      : int, # These are type hints
     db           : Session = Depends(get_db),
     current_admin: AdminUser = Depends(get_current_admin),
 ):
