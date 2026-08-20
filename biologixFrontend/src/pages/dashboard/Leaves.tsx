@@ -233,7 +233,7 @@ function MonthGroup({
   leaves  : LeaveRecord[];
   onDelete: (id: number) => void;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const paid   = leaves.filter((l) => l.leave_type === "paid").length;
   const unpaid = leaves.filter((l) => l.leave_type === "unpaid").length;
 

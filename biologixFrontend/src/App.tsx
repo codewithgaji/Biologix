@@ -21,6 +21,8 @@ import ArchiveDetailPage from "./pages/dashboard/ArchiveDetail";
 import PendingApproval from "./pages/PendingApproval";
 import UsersPage from "./pages/dashboard/Users";
 import AuditPage from "./pages/dashboard/Audit";
+import DbAdmin from "./pages/dashboard/DbAdmin";
+import About from "./pages/dashboard/About";
 
 const queryClient = new QueryClient();
 
@@ -35,14 +37,16 @@ const App = () => (
           <Route path="/pending-approval" element={<PendingApproval />} />
           <Route path="/dashboard" element={<AuthGuard><DashboardLayout /></AuthGuard>}>
             <Route index element={<Overview />} />
+            <Route path="about" element={<About />} />
             <Route path="employees" element={<Employees />} />
             <Route path="departments" element={<Departments />} />
             <Route path="attendance" element={<Attendance />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="archive" element={<ArchivePage />} />
             <Route path="archive/:id" element={<ArchiveDetailPage />} />
-            <Route path="users" element={<UsersPage />} />
-<Route path="audit" element={<AuditPage />} />
+            <Route path="users" element={<UsersPage />} /> 
+            <Route path="audit" element={<AuditPage />} />
+            <Route path="db-admin" element={<DbAdmin />} />
             <Route path="import" element={<ImportData />} />
             <Route path="export" element={<Export />} />
             <Route path="holidays" element={<Holidays />} />

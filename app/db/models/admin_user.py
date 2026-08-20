@@ -1,8 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum as SAEnum
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Enum as SAEnum, Index
+from sqlalchemy.sql import func, text
 from db.database import Base
 import enum
-
 # I'm doing this for accountability.... incase i'm not around to see what changes are being made to the admin users table.
 class AdminRole(str, enum.Enum):
     viewer  = "viewer"
@@ -37,3 +36,14 @@ class AdminUser(Base):
     created_at    = Column(DateTime(timezone=True), server_default=func.now())
     updated_at    = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+
+
+    __table_args__ = (
+        Index(
+            "ix_admin_users_single_superuser",
+            "is_superuser",
+            unique=True,
+            postgresql_where=text("is_superuser = true"),
+        ),
+    )

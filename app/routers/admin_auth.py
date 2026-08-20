@@ -325,3 +325,52 @@ def reactivate_user(
 
     db.commit()
     return {"message": f"{user.full_name} has been reactivated"}
+
+
+
+# Delete suspended user — admin only 
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id      : int,
+    db           : Session = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.is_superuser:
+        raise HTTPException(
+            status_code = status.HTTP_403_FORBIDDEN,
+            detail      = "This account is protected and cannot be deleted.",
+        )
+
+    if user.id == current_admin.id:
+        raise HTTPException(
+            status_code = status.HTTP_400_BAD_REQUEST,
+            detail      = "You cannot delete your own account",
+        )
+
+    if user.status != AdminStatus.suspended:
+        raise HTTPException(
+            status_code = status.HTTP_400_BAD_REQUEST,
+            detail      = "Only suspended users can be deleted. Suspend the user first.",
+        )
+
+    user_name = user.full_name
+    user_email = user.email
+
+    log_critical(
+        db           = db,
+        action       = AuditAction.user_suspended,   # closest available — no user_deleted enum yet
+        performed_by = current_admin.email,
+        target_type  = "admin_user",
+        target_id    = str(user.id),
+        target_label = user_name,
+        old_value    = {"email": user_email, "role": user.role.value, "status": "suspended"},
+        notes        = "Admin user permanently deleted",
+    )
+
+    db.delete(user)
+    db.commit()
+    return {"message": f"{user_name} has been permanently deleted"}

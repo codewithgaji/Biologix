@@ -13,9 +13,11 @@ from routers.analytics_router import router as analytics_router
 from routers.archive_router import router as archive_router
 from routers.admin_auth import router as admin_auth_router
 from routers.audit_router import router as audit_router
+from routers.db_admin_router import router as db_admin_router
 from fastapi.middleware.cors import CORSMiddleware
 from core.scheduler import scheduler
 from jobs.purge_archives import purge_expired_archives_job
+from jobs.backup import run_scheduled_backup
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 import os
@@ -41,6 +43,12 @@ async def lifespan(app: FastAPI):
         purge_expired_archives_job,
         CronTrigger(hour=2, minute=0),
         id="purge_archives",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_scheduled_backup,
+        CronTrigger(day_of_week="sun", hour=3, minute=0),
+        id="weekly_backup",
         replace_existing=True,
     )
     scheduler.start()
@@ -77,6 +85,8 @@ app.include_router(holiday_router.router, tags=["Holidays"])
 app.include_router(analytics_router,  tags=["Analytics"])
 app.include_router(archive_router,    tags=["Archive"])
 app.include_router(audit_router,      tags=["Audit"])
+app.include_router(db_admin_router,   tags=["DB Admin"])
+
 
 @app.get("/")
 def root():
