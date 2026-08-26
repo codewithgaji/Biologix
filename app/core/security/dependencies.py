@@ -91,3 +91,18 @@ def get_current_admin(
             detail      = "Admin access required",
         )
     return user
+
+
+
+
+
+def get_current_superuser(
+    user: AdminUser = Depends(_get_verified_user),
+) -> AdminUser:
+    """Superuser only — DB admin panel, stats, purge, backups."""
+    if not user.is_superuser:
+        raise HTTPException(
+            status_code = status.HTTP_403_FORBIDDEN,
+            detail      = "Superuser access required",
+        )
+    return user

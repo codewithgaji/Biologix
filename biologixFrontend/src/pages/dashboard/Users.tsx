@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   getAdminUsers, approveUser, changeUserRole,
-  suspendUser, reactivateUser
+  suspendUser, reactivateUser, deleteAdminUser
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import {
   UserCog, Clock, CheckCircle2, XCircle,
-  ShieldCheck, Eye, FileDown, Pencil, AlertTriangle
+  ShieldCheck, Eye, FileDown, Pencil, AlertTriangle, Trash2
 } from "lucide-react";
 
 type AdminStatus = "pending" | "active" | "suspended";
@@ -115,18 +115,19 @@ function ConfirmDialog({
 
 // ─── User Card ────────────────────────────────────────────────────────────────
 function UserCard({
-  user, onApprove, onRoleChange, onSuspend, onReactivate, isSelf,
+  user, onApprove, onRoleChange, onSuspend, onReactivate, onDelete, isSelf,
 }: {
   user        : AdminUser;
   onApprove   : (userId: number, role: AdminRole) => void;
   onRoleChange: (userId: number, role: AdminRole) => void;
   onSuspend   : (userId: number) => void;
   onReactivate: (userId: number) => void;
+  onDelete    : (userId: number) => void;
   isSelf      : boolean;
 }) {
   const [selectedRole, setSelectedRole] = useState<AdminRole>(user.role);
-  const RoleIcon   = roleIcon[user.role];
-  const isProtected = user.is_superuser;  // superuser — no actions allowed
+  const RoleIcon    = roleIcon[user.role];
+  const isProtected = user.is_superuser;
 
   return (
     <div className={`glass-card rounded-xl p-4 space-y-3 ${
@@ -173,7 +174,7 @@ function UserCard({
         </span>
       </div>
 
-      {/* Actions — gated on isSelf AND isProtected */}
+      {/* Actions */}
       {!isSelf && !isProtected && (
         <div className="pt-2 border-t border-border/50 space-y-2">
 
@@ -226,15 +227,25 @@ function UserCard({
             </div>
           )}
 
-          {/* Suspended — reactivate only */}
+          {/* Suspended — reactivate + delete */}
           {user.status === "suspended" && (
-            <Button
-              size="sm" variant="outline" className="w-full gap-1.5"
-              onClick={() => onReactivate(user.id)}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-              Reactivate
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                size="sm" variant="outline" className="w-full gap-1.5"
+                onClick={() => onReactivate(user.id)}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                Reactivate
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="w-full gap-1.5 text-destructive hover:bg-destructive/10 border-destructive/30"
+                onClick={() => onDelete(user.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete permanently
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -257,10 +268,10 @@ function UserCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function UsersPage() {
-  const [users, setUsers]           = useState<AdminUser[]>([]);
-  const [loading, setLoading]       = useState(true);
+  const [users, setUsers]               = useState<AdminUser[]>([]);
+  const [loading, setLoading]           = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [confirm, setConfirm]       = useState<{
+  const [confirm, setConfirm]           = useState<{
     action     : () => Promise<void>;
     title      : string;
     message    : string;
@@ -285,7 +296,6 @@ export default function UsersPage() {
 
   useEffect(() => { load(); }, []);
 
-  // ── Confirm runner — catches backend errors and surfaces them ──────────────
   const runConfirm = async () => {
     if (!confirm) return;
     setConfirming(true);
@@ -356,9 +366,32 @@ export default function UsersPage() {
     });
   };
 
+  const handleDelete = (userId: number) => {
+    const user = users.find((u) => u.id === userId);
+    setConfirm({
+      title      : "Delete User",
+      message    : `Permanently delete ${user?.full_name}? This cannot be undone. Their account will be removed from the system entirely.`,
+      label      : "Delete permanently",
+      destructive: true,
+      action     : async () => {
+        await deleteAdminUser(userId);
+        toast.success(`${user?.full_name} deleted`);
+      },
+    });
+  };
+
   const pending   = users.filter((u) => u.status === "pending");
   const active    = users.filter((u) => u.status === "active");
   const suspended = users.filter((u) => u.status === "suspended");
+
+  // ── shared props for every UserCard ───────────────────────────────────────
+  const cardProps = {
+    onApprove   : handleApprove,
+    onRoleChange: handleRoleChange,
+    onSuspend   : handleSuspend,
+    onReactivate: handleReactivate,
+    onDelete    : handleDelete,
+  };
 
   return (
     <div className="space-y-6">
@@ -400,9 +433,7 @@ export default function UsersPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pending.map((u) => (
-                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail}
-                    onApprove={handleApprove} onRoleChange={handleRoleChange}
-                    onSuspend={handleSuspend} onReactivate={handleReactivate} />
+                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail} {...cardProps} />
                 ))}
               </div>
             </div>
@@ -420,9 +451,7 @@ export default function UsersPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {active.map((u) => (
-                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail}
-                    onApprove={handleApprove} onRoleChange={handleRoleChange}
-                    onSuspend={handleSuspend} onReactivate={handleReactivate} />
+                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail} {...cardProps} />
                 ))}
               </div>
             </div>
@@ -440,9 +469,7 @@ export default function UsersPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {suspended.map((u) => (
-                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail}
-                    onApprove={handleApprove} onRoleChange={handleRoleChange}
-                    onSuspend={handleSuspend} onReactivate={handleReactivate} />
+                  <UserCard key={u.id} user={u} isSelf={u.email === currentEmail} {...cardProps} />
                 ))}
               </div>
             </div>
@@ -473,8 +500,8 @@ export default function UsersPage() {
       {/* Error dialog */}
       {errorMessage && (
         <ErrorDialog
-          message  = {errorMessage}
-          onClose  = {() => setErrorMessage(null)}
+          message = {errorMessage}
+          onClose = {() => setErrorMessage(null)}
         />
       )}
     </div>

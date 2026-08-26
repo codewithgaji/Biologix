@@ -6,3 +6,5 @@ from db.models.leave import Leave
 from db.models.archive import ArchivedEmployee, ArchivedAttendanceLog
 from db.models.admin_user import AdminUser, AdminRole, AdminStatus
 from db.models.audit_log import CriticalLog, AuditAction, ActivityAction, ActivityLog
+from db.models.backup import DbBackup
+from db.models.import_file import ImportFile

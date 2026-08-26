@@ -24,6 +24,9 @@ class AuditAction(str, enum.Enum):
     # Archive
     archive_purged    = "archive_purged"
 
+    # DB Admin
+    attendance_purged = "attendance_purged"
+
 
 class ActivityAction(str, enum.Enum):
     # Employee edits

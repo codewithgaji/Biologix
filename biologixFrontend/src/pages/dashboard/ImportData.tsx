@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
-import { importUsers, importAttendance, getImportStatus } from "@/lib/api";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { importUsers, importAttendance, getImportStatus, getImportHistory, downloadImportFile } from "@/lib/api";
 import {
   Upload, Users, LogIn, LogOut, CheckCircle2,
-  SkipForward, XCircle, AlertTriangle, Loader2, Clock, ShieldAlert
+  SkipForward, XCircle, AlertTriangle, Loader2, Clock, ShieldAlert,
+  History, ChevronDown, ChevronUp, Download, FileText
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,39 @@ interface ImportResult {
   type    ?: string;
   detail  ?: string;
 }
+
+interface ImportRecord {
+  id               : number;
+  import_type      : string;   // "users" | "check_in" | "check_out"
+  original_filename: string;
+  inserted         : number;
+  skipped          : number;
+  errors           : number;
+  imported_by      : string;
+  imported_at      : string;
+}
+
+// ── month grouping helpers (same as Leaves.tsx) ──────────────────────────────
+function getMonthLabel(dateStr: string) {
+  return new Date(dateStr).toLocaleDateString("en-GB", {
+    month: "long", year: "numeric",
+  });
+}
+function getMonthKey(dateStr: string) {
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+function formatDateTime(dateStr: string) {
+  return new Date(dateStr).toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+const TYPE_META: Record<string, { label: string; icon: any; color: string; bg: string }> = {
+  users     : { label: "Employees",  icon: Users,  color: "text-primary",   bg: "bg-primary/15" },
+  check_in  : { label: "Clock-In",   icon: LogIn,  color: "text-green-500", bg: "bg-green-500/15" },
+  check_out : { label: "Clock-Out",  icon: LogOut, color: "text-orange-500",bg: "bg-orange-500/15" },
+};
 
 // ─── Rejection Dialog ─────────────────────────────────────────────────────────
 function RejectionDialog({
@@ -57,7 +91,7 @@ function RejectionDialog({
 // ─── Import Card ──────────────────────────────────────────────────────────────
 function ImportCard({
   title, subtitle, warning, instruction, icon: Icon,
-  onImport, accept, requiredFilename,
+  onImport, accept, requiredFilename, onComplete,
 }: {
   title           : string;
   subtitle        : string;
@@ -67,6 +101,7 @@ function ImportCard({
   onImport        : (file: File) => Promise<any>;
   accept          : string;
   requiredFilename: string;
+  onComplete      : () => void;
 }) {
   const [status, setStatus]       = useState<JobStatus>("idle");
   const [result, setResult]       = useState<ImportResult | null>(null);
@@ -84,6 +119,7 @@ function ImportCard({
         if (data.status === "done") {
           stopPolling(); setStatus("done"); setResult(data);
           toast.success("Import complete!");
+          onComplete();
         } else if (data.status === "error") {
           stopPolling(); setStatus("error");
           setResult({ detail: data.detail });
@@ -253,8 +289,167 @@ function ImportCard({
   );
 }
 
+// ─── Import history row ────────────────────────────────────────────────────────
+function ImportRow({ record }: { record: ImportRecord }) {
+  const meta = TYPE_META[record.import_type] || { label: record.import_type, icon: FileText, color: "text-muted-foreground", bg: "bg-secondary" };
+  const Icon = meta.icon;
+
+  const handleDownload = async () => {
+    try {
+      await downloadImportFile(record.id, record.original_filename);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to download file");
+    }
+  };
+
+  return (
+    <div className="glass-card rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${meta.bg}`}>
+        <Icon className={`h-5 w-5 ${meta.color}`} />
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.color}`}>
+            {meta.label}
+          </span>
+          <span className="text-xs text-muted-foreground font-mono">{record.original_filename}</span>
+        </div>
+
+        <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
+          <span>{formatDateTime(record.imported_at)}</span>
+          <span>by {record.imported_by}</span>
+        </div>
+
+        <div className="flex items-center gap-3 mt-1.5 text-xs flex-wrap">
+          <span className="flex items-center gap-1 text-green-500">
+            <CheckCircle2 className="h-3 w-3" /> {record.inserted} inserted
+          </span>
+          {record.skipped > 0 && (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <SkipForward className="h-3 w-3" /> {record.skipped} skipped
+            </span>
+          )}
+          {record.errors > 0 && (
+            <span className="flex items-center gap-1 text-destructive">
+              <XCircle className="h-3 w-3" /> {record.errors} errors
+            </span>
+          )}
+        </div>
+      </div>
+
+      <button
+        onClick={handleDownload}
+        className="self-start sm:self-center p-2 rounded-lg hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors shrink-0"
+        title="Download original file"
+      >
+        <Download className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Import month group ────────────────────────────────────────────────────────
+function ImportMonthGroup({
+  label, records,
+}: {
+  label  : string;
+  records: ImportRecord[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 glass-card rounded-xl hover:bg-secondary/40 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <History className="h-4 w-4 text-primary" />
+          <span className="font-semibold text-foreground text-sm">{label}</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">
+            {records.length} import{records.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {open
+          ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        }
+      </button>
+
+      {open && (
+        <div className="space-y-2 pl-2">
+          {records.map((r) => <ImportRow key={r.id} record={r} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Import timeline (main history section) ───────────────────────────────────
+function ImportTimeline({ refreshKey }: { refreshKey: number }) {
+  const [history, setHistory] = useState<ImportRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    getImportHistory()
+      .then(setHistory)
+      .catch(() => toast.error("Failed to load import history"))
+      .finally(() => setLoading(false));
+  }, [refreshKey]);
+
+  const groupedByMonth = useMemo(() => {
+    const map = new Map<string, ImportRecord[]>();
+    const sorted = [...history].sort(
+      (a, b) => new Date(b.imported_at).getTime() - new Date(a.imported_at).getTime()
+    );
+    for (const rec of sorted) {
+      const key = getMonthKey(rec.imported_at);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(rec);
+    }
+    return map;
+  }, [history]);
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+        Import History
+      </h2>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2].map((i) => (
+            <div key={i} className="glass-card rounded-xl p-4 h-20 animate-pulse bg-secondary/30" />
+          ))}
+        </div>
+      ) : history.length === 0 ? (
+        <div className="glass-card rounded-xl p-12 text-center text-muted-foreground">
+          <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          <p>No imports yet.</p>
+          <p className="text-xs mt-1">Every import you run above will show up here, with the original file saved for download.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Array.from(groupedByMonth.entries()).map(([key, records]) => (
+            <ImportMonthGroup
+              key={key}
+              label={getMonthLabel(records[0].imported_at)}
+              records={records}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ImportData() {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const bumpRefresh = () => setRefreshKey((k) => k + 1);
+
   return (
     <div className="space-y-6">
       <div>
@@ -277,6 +472,7 @@ export default function ImportData() {
             onImport={importUsers}
             accept=".dat"
             requiredFilename="user.dat"
+            onComplete={bumpRefresh}
           />
         </div>
       </div>
@@ -301,6 +497,7 @@ export default function ImportData() {
             onImport={(file) => importAttendance(file, "clock_in")}
             accept=".dat"
             requiredFilename="clock_in.dat"
+            onComplete={bumpRefresh}
           />
           <ImportCard
             title="Import Clock-Out"
@@ -310,9 +507,12 @@ export default function ImportData() {
             onImport={(file) => importAttendance(file, "clock_out")}
             accept=".dat"
             requiredFilename="clock_out.dat"
+            onComplete={bumpRefresh}
           />
         </div>
       </div>
+
+      <ImportTimeline refreshKey={refreshKey} />
     </div>
   );
 }

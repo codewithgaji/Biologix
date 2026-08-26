@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Building2, CalendarCheck, Upload, Download,
   LogOut, Menu, X, Fingerprint, CalendarDays, BarChart2, Archive,
-  ShieldCheck, UserCog
+  ShieldCheck, UserCog, Database, Compass
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearAuth } from "@/lib/api";
@@ -16,6 +16,7 @@ export default function DashboardLayout() {
   const location  = useLocation();
   const navigate  = useNavigate();
   const { isAdmin, isEditor, isPayroll } = useRole();
+  const isSuperuser = localStorage.getItem("biologix_is_superuser") === "true";
 
   const handleLogout = () => {
     clearAuth();
@@ -30,6 +31,7 @@ export default function DashboardLayout() {
   // Build nav dynamically based on role
   const navItems = [
     { label: "Overview",    path: "/dashboard",             icon: LayoutDashboard, show: true        },
+    { label: "About",        path: "/dashboard/about",       icon: Compass,         show: true        },
     { label: "Employees",   path: "/dashboard/employees",   icon: Users,           show: true        },
     { label: "Departments", path: "/dashboard/departments", icon: Building2,       show: true        },
     { label: "Attendance",  path: "/dashboard/attendance",  icon: CalendarCheck,   show: true        },
@@ -41,6 +43,7 @@ export default function DashboardLayout() {
     { label: "Export",      path: "/dashboard/export",      icon: Download,        show: isPayroll   },
     { label: "Users",       path: "/dashboard/users",       icon: UserCog,         show: isAdmin     },
     { label: "Audit Log",   path: "/dashboard/audit",       icon: ShieldCheck,     show: isAdmin     },
+    { label: "DB Admin",  path: "/dashboard/db-admin",  icon: Database,    show: isSuperuser },
   ].filter((item) => item.show);
 
   const NavLinks = () => (

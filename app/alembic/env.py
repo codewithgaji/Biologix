@@ -40,6 +40,8 @@ BIOLOGIX_TABLES = {
     "critical_logs",
     "activity_logs",
     "import_snapshots",
+    "db_backups",
+    "import_files"
 }
 
 def include_name(name, type_, parent_names):
