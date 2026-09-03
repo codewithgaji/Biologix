@@ -16,6 +16,7 @@ from routers.audit_router import router as audit_router
 from routers.db_admin_router import router as db_admin_router
 from fastapi.middleware.cors import CORSMiddleware
 from core.scheduler import scheduler
+from core.seed_superuser import seed_superuser  # <-- added
 from jobs.purge_archives import purge_expired_archives_job
 from jobs.backup import run_scheduled_backup
 from apscheduler.triggers.cron import CronTrigger
@@ -38,6 +39,8 @@ async def lifespan(app: FastAPI):
     ArchivedEmployee.metadata.create_all(bind=engine)
     AdminUser.metadata.create_all(bind=engine)
     CriticalLog.metadata.create_all(bind=engine)
+
+    seed_superuser()  # This runs after tables exist, before scheduler starts
 
     scheduler.add_job(
         purge_expired_archives_job,
