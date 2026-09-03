@@ -2,10 +2,12 @@ alembic==1.18.4
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
+APScheduler==3.11.2
 bcrypt==5.0.0
 click==8.3.1
 colorama==0.4.6
-email-validator
+dnspython==2.8.0
+email-validator==2.3.0
 et_xmlfile==2.0.0
 fastapi==0.135.1
 greenlet==3.3.2
@@ -25,4 +27,6 @@ SQLAlchemy==2.0.48
 starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+tzdata==2026.2
+tzlocal==5.4.3
 uvicorn==0.41.0
